@@ -2,6 +2,41 @@
 
 All notable changes to theorchestra are documented here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.1.0] - 2026-04-14
+
+### Major — v3.1 visual port + A2A arrows + toasts + sounds
+
+After v2.0 user feedback ("es un asco" vs the v3.1 ancestor), a full aesthetic port of the v3.1 `.dwin` terminal pattern into our React architecture — plus brand-new features v3.1 never had.
+
+**Ported from v3.1 verbatim**:
+
+- Mac-style traffic lights (red/yellow/green circles) on every Desktop window header, with red=kill, yellow=minimize.
+- Terminal-card aesthetic: soft gradient header, centered project title, dark terminal body (`#05080d`), thin custom scrollbar, rounded corners, soft drop shadow.
+- **Inline prompt bar per window**: `<input placeholder="Prompt...">` + Send + Q+ + Ctx + Mode — type directly in the window, hit Enter, NO modal round-trip. This replaces the `window.prompt()` + modal flow in Desktop mode. Q+ tags the prompt as `[queued]`, Ctx sends a context ping, Mode cycles pane mode via `/mode`.
+- **Layout buttons**: Tile (sqrt(n) grid), Cascade (28px stagger), Stack (all centered), Show All (restores minimized).
+- **Broadcast input** in the desktop toolbar: one-shot send to every visible Claude pane.
+- **Dock bar redesigned**: 44px circular avatars with 2-letter project initials + pulsing status dot (green=idle, blue=working, yellow=permission). Glass-blur floating pill bottom-center of desktop.
+
+**Brand-new (no v3.1 equivalent)**:
+
+- **A2A arrows overlay**: curved SVG arrows drawn from pane-N to pane-M for every in-flight or recent A2A `corr`, derived PURELY from the SSE event stream (no backend change needed). Blue=open, green=resolved, red=orphaned. Dashed when resolved/errored, solid when in-flight. Labels show `corr·type`. Re-renders on resize + every 2s for layout drift.
+- **Toasts** (top-right stack): `session_completed` (✅), `session_permission` (🔐), `peer_orphaned` (⚠️). Auto-dismiss 6s, manually closeable.
+- **Sounds**: WebAudio-synthesized beeps — 880→1320Hz fanfare on completed, 660Hz on permission, 440Hz on orphaned. No audio assets shipped. Respects browser autoplay policies.
+
+### Bundle
+
+213.93KB JS (+10KB vs v2.0 for A2A arrows + toasts + sounds), 14.83KB CSS. Zero TypeScript errors. E2E-validated via Playwright before commit per the "no syntax-only ship" rule (claim 9393).
+
+### Still on roadmap (v2.2+)
+
+- Sessions sidebar view (per v3.1 screenshots: click pane → big terminal on right).
+- Spawn view with project grid (per v3.1 screenshots).
+- Active Tasks collapsible drawer.
+- Monitoring section showing what OmniClaude is watching.
+- OmniClaude pinned window (always visible).
+- Replace react-rnd with custom hook.
+- Cmd+K command palette.
+
 ## [2.0.0] - 2026-04-14
 
 ### Major — Dashboard v2.0 (windowing + PromptComposer + permission buttons)

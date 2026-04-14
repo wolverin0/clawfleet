@@ -276,6 +276,21 @@ code, pre, .mono { font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace
 .dwin-resize.re { right:-3px; top:10px; bottom:10px; width:5px; cursor:e-resize; }
 .dwin-resize.rb { bottom:-3px; left:10px; right:10px; height:5px; cursor:s-resize; }
 
+/* ─── A2A arrows overlay (Desktop view) ─── */
+.a2a-arrows {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  pointer-events: none; z-index: 0;
+  overflow: visible;
+}
+.a2a-arrow { fill: none; stroke-width: 2; transition: opacity 0.3s ease; }
+.a2a-arrow.active { stroke: var(--accent); opacity: 0.85; }
+.a2a-arrow.resolved { stroke: var(--green); opacity: 0.35; }
+.a2a-arrow.orphaned { stroke: var(--red); opacity: 0.9; animation: a2aArrowPulse 1.2s infinite; }
+@keyframes a2aArrowPulse {
+  0%, 100% { opacity: 0.9; stroke-width: 2; }
+  50% { opacity: 0.4; stroke-width: 3; }
+}
+
 /* ─── Git commit events ─── */
 .feed-event.git_commit { border-left: 3px solid var(--accent); }
 .feed-badge.git_commit { background: oklch(0.65 0.24 270 / 0.2); color: var(--accent); }
@@ -370,7 +385,10 @@ code, pre, .mono { font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace
   color: var(--text-secondary); cursor: pointer; user-select: none;
   background: rgba(0,0,0,0.15);
 }
-.as-panel-head:hover { color: var(--text-primary); }
+.as-panel-head:hover { color: var(--text-primary); cursor: grab; }
+#activitySidebar.collapsed .as-panel-head { cursor: pointer; }
+.as-panel.as-drag-over { outline: 2px dashed var(--accent); outline-offset: -2px; }
+.as-panel.as-dragging { opacity: 0.45; }
 .as-panel-head .as-title { display: flex; align-items: center; gap: 6px; overflow: hidden; }
 .as-panel-head .as-title .mono { font-size: 10px; color: var(--text-tertiary); }
 .as-panel-head .as-count { font-size: 10px; padding: 1px 6px; border-radius: 10px; background: var(--bg-hover); color: var(--text-secondary); }
@@ -695,6 +713,19 @@ code, pre, .mono { font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace
     </div>
     <div id="desktopLayout" style="display:flex;flex:1;overflow:hidden">
       <div class="desktop-area" id="desktopArea" style="flex:1;position:relative">
+        <svg id="a2aArrows" class="a2a-arrows" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="a2aArrowHeadActive" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"></path>
+            </marker>
+            <marker id="a2aArrowHeadResolved" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--green)" opacity="0.5"></path>
+            </marker>
+            <marker id="a2aArrowHeadOrphaned" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--red)"></path>
+            </marker>
+          </defs>
+        </svg>
         <div id="desktopDock" style="position:absolute;bottom:8px;left:50%;transform:translateX(-50%);display:flex;gap:6px;padding:6px 14px;background:rgba(0,0,0,0.5);backdrop-filter:blur(20px);border:1px solid var(--glass-border);border-radius:16px;z-index:100"></div>
       </div>
       <div id="desktopFeed" style="display:none !important;width:320px;flex-shrink:0;background:var(--bg-surface);flex-direction:column;position:relative" data-superseded-by="activitySidebar">
@@ -746,7 +777,7 @@ code, pre, .mono { font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace
     <span title="Events" style="font-size:10px;color:var(--text-secondary)">▪</span>
   </div>
   <div class="as-panels" id="asPanels">
-    <div class="as-panel" id="asPanelOmni">
+    <div class="as-panel" id="asPanelOmni" data-panel-key="omni" draggable="true">
       <div class="as-panel-head" onclick="toggleAsPanel('omni')">
         <span class="as-title">
           <span>◎ OmniClaude</span>
@@ -759,7 +790,7 @@ code, pre, .mono { font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace
         <div id="asOmniBody">Detecting OmniClaude pane…</div>
       </div>
     </div>
-    <div class="as-panel" id="asPanelA2A">
+    <div class="as-panel" id="asPanelA2A" data-panel-key="a2a" draggable="true">
       <div class="as-panel-head" onclick="toggleAsPanel('a2a')">
         <span class="as-title"><span>↔ A2A</span><span class="as-count" id="asA2ACount">0</span></span>
         <span class="as-chevron">▾</span>
@@ -770,7 +801,7 @@ code, pre, .mono { font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace
         </div>
       </div>
     </div>
-    <div class="as-panel" id="asPanelEvents">
+    <div class="as-panel" id="asPanelEvents" data-panel-key="events" draggable="true">
       <div class="as-panel-head" onclick="toggleAsPanel('events')">
         <span class="as-title"><span>▪ Events</span><span class="as-count" id="asEventsCount">0</span></span>
         <span class="as-chevron">▾</span>
@@ -1340,6 +1371,7 @@ function dtCreateWin(s) {
   var el = document.createElement('div');
   el.className = 'dwin';
   el.id = 'dw-' + s.pane_id;
+  el.setAttribute('data-pane-id', s.pane_id);
   el.style.cssText = 'left:' + w.x + 'px;top:' + w.y + 'px;width:' + w.w + 'px;height:' + w.h + 'px;z-index:' + w.z;
 
   el.innerHTML =
@@ -2524,6 +2556,283 @@ setInterval(() => { renderA2APanel(); renderAsEvents(); }, 10000);
 
 // Escape key closes modals
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+
+// ─── v2.4 Item 1: Sidebar panel drag-to-reorder ───
+const SIDEBAR_ORDER_KEY = 'theorchestra:sidebar-panel-order:v1';
+const DEFAULT_PANEL_ORDER = ['omni', 'a2a', 'events'];
+function readSidebarOrder() {
+  try {
+    const raw = localStorage.getItem(SIDEBAR_ORDER_KEY);
+    if (!raw) return DEFAULT_PANEL_ORDER.slice();
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return DEFAULT_PANEL_ORDER.slice();
+    // Validate: must contain all known keys exactly once
+    const known = new Set(DEFAULT_PANEL_ORDER);
+    const filtered = parsed.filter(k => known.has(k));
+    DEFAULT_PANEL_ORDER.forEach(k => { if (!filtered.includes(k)) filtered.push(k); });
+    return filtered;
+  } catch { return DEFAULT_PANEL_ORDER.slice(); }
+}
+function writeSidebarOrder(order) {
+  // Persist to localStorage key 'theorchestra:sidebar-panel-order:v1'
+  try { localStorage.setItem(SIDEBAR_ORDER_KEY, JSON.stringify(order)); } catch {}
+}
+function applySidebarOrder() {
+  const host = document.getElementById('asPanels');
+  if (!host) return;
+  const order = readSidebarOrder();
+  order.forEach(key => {
+    const el = host.querySelector('.as-panel[data-panel-key="' + key + '"]');
+    if (el) host.appendChild(el); // appending reorders in DOM
+  });
+}
+function currentSidebarOrder() {
+  const host = document.getElementById('asPanels');
+  if (!host) return DEFAULT_PANEL_ORDER.slice();
+  return Array.from(host.querySelectorAll('.as-panel[data-panel-key]'))
+    .map(el => el.getAttribute('data-panel-key'));
+}
+(function wireSidebarDrag() {
+  const host = document.getElementById('asPanels');
+  if (!host) return;
+  let draggingKey = null;
+  const panels = host.querySelectorAll('.as-panel[data-panel-key]');
+  panels.forEach(panel => {
+    panel.addEventListener('dragstart', (e) => {
+      // Disable drag when sidebar is collapsed (rail mode)
+      if (document.getElementById('activitySidebar').classList.contains('collapsed')) {
+        e.preventDefault();
+        return;
+      }
+      draggingKey = panel.getAttribute('data-panel-key');
+      panel.classList.add('as-dragging');
+      try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', draggingKey); } catch {}
+    });
+    panel.addEventListener('dragend', () => {
+      panel.classList.remove('as-dragging');
+      host.querySelectorAll('.as-panel.as-drag-over').forEach(p => p.classList.remove('as-drag-over'));
+      draggingKey = null;
+    });
+    panel.addEventListener('dragover', (e) => {
+      if (!draggingKey) return;
+      if (panel.getAttribute('data-panel-key') === draggingKey) return;
+      e.preventDefault();
+      try { e.dataTransfer.dropEffect = 'move'; } catch {}
+      host.querySelectorAll('.as-panel.as-drag-over').forEach(p => p.classList.remove('as-drag-over'));
+      panel.classList.add('as-drag-over');
+    });
+    panel.addEventListener('dragleave', () => { panel.classList.remove('as-drag-over'); });
+    panel.addEventListener('drop', (e) => {
+      e.preventDefault();
+      panel.classList.remove('as-drag-over');
+      const srcKey = draggingKey || (e.dataTransfer && e.dataTransfer.getData('text/plain'));
+      const tgtKey = panel.getAttribute('data-panel-key');
+      if (!srcKey || !tgtKey || srcKey === tgtKey) return;
+      const srcEl = host.querySelector('.as-panel[data-panel-key="' + srcKey + '"]');
+      if (!srcEl) return;
+      // Insert src before target (if tgt comes after src visually, insert after)
+      const all = Array.from(host.querySelectorAll('.as-panel[data-panel-key]'));
+      const srcIdx = all.indexOf(srcEl), tgtIdx = all.indexOf(panel);
+      if (srcIdx < tgtIdx) host.insertBefore(srcEl, panel.nextSibling);
+      else host.insertBefore(srcEl, panel);
+      writeSidebarOrder(currentSidebarOrder());
+    });
+  });
+})();
+applySidebarOrder();
+
+// ─── v2.4 Item 4: A2A arrows SVG overlay ───
+const A2A_ARROW_GONE_MS = 10000; // fade out 10s after resolution
+function paneStatusStroke(status) {
+  if (status === 'orphaned') return 'orphaned';
+  if (status === 'resolved') return 'resolved';
+  return 'active';
+}
+function computePaneCenter(paneId, svgRect) {
+  const win = document.querySelector('.dwin[data-pane-id="' + paneId + '"]');
+  if (!win) return null;
+  if (win.classList.contains('minimized')) return null;
+  const r = win.getBoundingClientRect();
+  if (!r.width || !r.height) return null;
+  return { x: r.left + r.width / 2 - svgRect.left, y: r.top + r.height / 2 - svgRect.top, w: r.width, h: r.height };
+}
+function redrawA2AArrows() {
+  const svg = document.getElementById('a2aArrows');
+  if (!svg) return;
+  // Only active when desktop view is mounted and visible
+  const desktopOpen = document.getElementById('desktopView') && document.getElementById('desktopView').classList.contains('open');
+  if (!desktopOpen) {
+    // Clear existing paths to free DOM
+    svg.querySelectorAll('path.a2a-arrow').forEach(p => p.remove());
+    return;
+  }
+  const svgRect = svg.getBoundingClientRect();
+  if (!svgRect.width || !svgRect.height) return;
+
+  stampResolvedAt();
+  // Collect corr rows from in-memory state
+  const now = Date.now();
+  const rows = Array.from(a2aCorrs.values()).filter(c => {
+    if (c.from == null || c.to == null) return false;
+    if (c.from === c.to) return false;
+    if (c.status === 'resolved') {
+      const resolvedAt = c.resolvedAt || c.lastSeen || now;
+      if (now - resolvedAt > A2A_ARROW_GONE_MS) return false;
+    }
+    return true;
+  });
+
+  // Build desired set keyed by corr
+  const desired = new Map();
+  // Group pairs to stagger control-point offsets for overlapping arrows
+  const pairCounts = new Map();
+  rows.forEach(r => {
+    const key = r.from + '->' + r.to;
+    pairCounts.set(key, (pairCounts.get(key) || 0) + 1);
+  });
+  const pairSeen = new Map();
+  rows.forEach(r => {
+    const key = r.from + '->' + r.to;
+    const seenN = (pairSeen.get(key) || 0);
+    pairSeen.set(key, seenN + 1);
+    const total = pairCounts.get(key) || 1;
+    // Offset index: -floor(total/2)..+, spread 40..80
+    const offsetIdx = seenN - (total - 1) / 2;
+    desired.set(r.corr, { row: r, offsetIdx });
+  });
+
+  // Remove stale paths
+  const existing = new Map();
+  svg.querySelectorAll('path.a2a-arrow').forEach(p => {
+    const corr = p.getAttribute('data-corr');
+    if (!corr || !desired.has(corr)) p.remove();
+    else existing.set(corr, p);
+  });
+
+  desired.forEach(({ row, offsetIdx }, corr) => {
+    const a = computePaneCenter(row.from, svgRect);
+    const b = computePaneCenter(row.to, svgRect);
+    if (!a || !b) { if (existing.has(corr)) existing.get(corr).remove(); return; }
+
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    // Unit perpendicular (for curve bulge)
+    const px = -dy / len, py = dx / len;
+    const bulge = 40 + Math.min(40, Math.abs(offsetIdx) * 30);
+    const sign = offsetIdx === 0 ? 1 : (offsetIdx > 0 ? 1 : -1);
+    const mx = (a.x + b.x) / 2 + px * bulge * sign;
+    const my = (a.y + b.y) / 2 + py * bulge * sign;
+    const d = 'M ' + a.x.toFixed(1) + ' ' + a.y.toFixed(1) +
+              ' Q ' + mx.toFixed(1) + ' ' + my.toFixed(1) +
+              ' ' + b.x.toFixed(1) + ' ' + b.y.toFixed(1);
+
+    const cls = 'a2a-arrow ' + paneStatusStroke(row.status);
+    const markerId = row.status === 'orphaned' ? 'a2aArrowHeadOrphaned'
+                    : row.status === 'resolved' ? 'a2aArrowHeadResolved'
+                    : 'a2aArrowHeadActive';
+
+    let path = existing.get(corr);
+    if (!path) {
+      path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('data-corr', corr);
+      svg.appendChild(path);
+    }
+    path.setAttribute('class', cls);
+    path.setAttribute('d', d);
+    path.setAttribute('marker-end', 'url(#' + markerId + ')');
+  });
+}
+
+// Mark resolvedAt lazily on each redraw (avoids fragile function wrapping)
+function stampResolvedAt() {
+  const now = Date.now();
+  a2aCorrs.forEach(row => {
+    if (row && row.status === 'resolved' && !row.resolvedAt) row.resolvedAt = now;
+  });
+}
+
+let _a2aRedrawPending = false;
+function redrawA2AArrowsSoon() {
+  if (_a2aRedrawPending) return;
+  _a2aRedrawPending = true;
+  requestAnimationFrame(() => { _a2aRedrawPending = false; try { redrawA2AArrows(); } catch {} });
+}
+
+// Hook into SSE refresh cycle — wrap renderA2APanel so every SSE refresh redraws arrows too.
+// In classic scripts, top-level function declarations ARE writable on the global object,
+// so assigning window.renderA2APanel rebinds the identifier that hookSSE() resolves.
+if (typeof renderA2APanel === 'function') {
+  const _origRenderA2APanel = renderA2APanel;
+  window.renderA2APanel = function() {
+    try { _origRenderA2APanel.apply(this, arguments); } catch {}
+    redrawA2AArrowsSoon();
+  };
+}
+// Hook into switchView
+(function patchSwitchView() {
+  const _origSwitch = switchView;
+  window.switchView = function(view) {
+    const r = _origSwitch.apply(this, arguments);
+    if (view === 'desktop') setTimeout(redrawA2AArrowsSoon, 50);
+    return r;
+  };
+})();
+// Global mouse listeners so window drag/resize triggers redraw without patching per-window handlers
+document.addEventListener('mousemove', () => {
+  if (document.getElementById('desktopView') && document.getElementById('desktopView').classList.contains('open')) {
+    // Only redraw when the mouse is pressed and we're likely dragging — cheap check
+    if (window.__a2aDragging) redrawA2AArrowsSoon();
+  }
+}, true);
+document.addEventListener('mousedown', (e) => {
+  if (e.target && e.target.closest && e.target.closest('.dwin')) window.__a2aDragging = true;
+}, true);
+document.addEventListener('mouseup', () => {
+  if (window.__a2aDragging) { window.__a2aDragging = false; redrawA2AArrowsSoon(); }
+}, true);
+// Periodic tick (fades out resolved arrows, catches missed updates)
+setInterval(redrawA2AArrowsSoon, 5000);
+// Also redraw on window resize
+window.addEventListener('resize', redrawA2AArrowsSoon);
+// Initial draw after load
+setTimeout(redrawA2AArrowsSoon, 800);
+
+// ─── v2.4 Item 2: Handoff history cold-start scan ───
+(function patchHandoffHistoryModal() {
+  const _origOpen = openHandoffHistory;
+  window.openHandoffHistory = async function(paneId) {
+    // Open in-memory-first for instant feedback; then augment with scan
+    _origOpen(paneId);
+    try {
+      const r = await fetch(API + '/api/handoffs?pane=' + encodeURIComponent(paneId));
+      if (!r.ok) return;
+      const d = await r.json();
+      const scanned = Array.isArray(d && d.handoffs) ? d.handoffs : [];
+      if (!scanned.length) return;
+      // Merge into in-memory history (dedup by corr)
+      const existingCorrs = new Set(handoffHistory.map(h => h.corr).filter(Boolean));
+      scanned.forEach(h => {
+        if (h.corr && existingCorrs.has(h.corr)) return;
+        handoffHistory.push({
+          source_pane: h.source_pane,
+          target_pane: h.target_pane,
+          corr: h.corr,
+          file: h.filepath || h.filename,
+          filename: h.filename,
+          filepath: h.filepath,
+          timestamp: h.timestamp || new Date().toISOString(),
+          instruction: '',
+        });
+      });
+      handoffHistory.sort((a, b) => (new Date(b.timestamp).getTime()) - (new Date(a.timestamp).getTime()));
+      while (handoffHistory.length > 500) handoffHistory.pop();
+      // Re-render by closing and re-opening (cheap; modal is idempotent)
+      _origOpen(paneId);
+    } catch {
+      // Silent fallback — in-memory view already shown
+    }
+  };
+})();
 
 </script>
 </body>

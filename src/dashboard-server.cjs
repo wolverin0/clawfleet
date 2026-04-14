@@ -17,11 +17,13 @@
  */
 
 const http = require('http');
+const https = require('https');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const wez = require('./wezterm.cjs');
 const { discoverPanes } = require('./pane-discovery.cjs');
+const routinesConfig = require('./routines-config.cjs');
 const { parseTasksFile } = (() => {
   try { return require('./task-parser.cjs'); }
   catch { return { parseTasksFile: () => ({ tasks: [], error: 'task-parser not available' }) }; }
@@ -506,6 +508,166 @@ async function handlePostSpawn(req, res) {
   }
 }
 
+// --- handoffs history (filesystem scan of <pane-cwd>/handoffs/*.md) ---
+
+const HANDOFF_HEADER_RE_SOURCE = /#\s*Handoff\s+from\s+([^(]+?)\s*\(pane-(\d+)\)/i;
+const HANDOFF_HEADER_RE_TARGET = /→\s*([^(]+?)\s*\(pane-(\d+)\)/;
+const HANDOFF_SENT_RE = /\*\*Sent\*\*\s*:\s*(\S+)/i;
+const HANDOFF_CORR_RE = /\*\*Corr\*\*\s*:\s*(\S+)/i;
+
+function parseHandoffHeader(text) {
+  const head = String(text || '').split(/\r?\n/).slice(0, 25).join('\n');
+  const src = head.match(HANDOFF_HEADER_RE_SOURCE);
+  const tgt = head.match(HANDOFF_HEADER_RE_TARGET);
+  const sent = head.match(HANDOFF_SENT_RE);
+  const corr = head.match(HANDOFF_CORR_RE);
+  return {
+    source_project: src ? src[1].trim() : null,
+    source_pane: src ? parseInt(src[2], 10) : null,
+    target_project: tgt ? tgt[1].trim() : null,
+    target_pane: tgt ? parseInt(tgt[2], 10) : null,
+    timestamp: sent ? sent[1].trim() : null,
+    corr: corr ? corr[1].trim() : null,
+  };
+}
+
+async function handleGetHandoffs(req, res, paneIdRaw) {
+  try {
+    const paneId = parseInt(paneIdRaw, 10);
+    if (!Number.isFinite(paneId)) {
+      return sendJson(res, 400, { error: 'pane query param required (integer)' });
+    }
+    const panes = discoverPanes ? discoverPanes() : [];
+    const pane = panes.find(p => (p.paneId ?? p.pane_id) === paneId);
+    if (!pane || !pane.project) {
+      return sendJson(res, 200, { handoffs: [], note: `pane ${paneId} has no known cwd` });
+    }
+    const handoffsDir = path.join(pane.project, 'handoffs');
+    if (!fs.existsSync(handoffsDir) || !fs.statSync(handoffsDir).isDirectory()) {
+      return sendJson(res, 200, { handoffs: [], note: `no handoffs/ dir at ${handoffsDir}` });
+    }
+    const entries = fs.readdirSync(handoffsDir, { withFileTypes: true })
+      .filter(e => e.isFile() && e.name.toLowerCase().endsWith('.md'));
+
+    const handoffs = [];
+    for (const e of entries) {
+      const filepath = path.join(handoffsDir, e.name);
+      let head = '';
+      try {
+        const fd = fs.openSync(filepath, 'r');
+        try {
+          const buf = Buffer.alloc(4096);
+          const n = fs.readSync(fd, buf, 0, buf.length, 0);
+          head = buf.slice(0, n).toString('utf8');
+        } finally { fs.closeSync(fd); }
+      } catch { /* skip unreadable */ continue; }
+
+      const meta = parseHandoffHeader(head);
+      let mtime = null;
+      try { mtime = fs.statSync(filepath).mtime.toISOString(); } catch { /* ignore */ }
+      handoffs.push({
+        filename: e.name,
+        filepath,
+        source_pane: meta.source_pane,
+        source_project: meta.source_project,
+        target_pane: meta.target_pane,
+        target_project: meta.target_project,
+        timestamp: meta.timestamp || mtime,
+        corr: meta.corr,
+      });
+    }
+    handoffs.sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')));
+    sendJson(res, 200, { handoffs });
+  } catch (err) {
+    log(`GET /api/handoffs error: ${err.message}`);
+    sendJson(res, 500, { error: err.message });
+  }
+}
+
+// --- routines fire (proxy to Anthropic /v1/claude_code/routines/:id/fire) ---
+
+const ROUTINES_API_HOST = 'api.anthropic.com';
+const ROUTINES_BETA_HEADER = 'experimental-cc-routine-2026-04-01';
+const ROUTINES_ANTHROPIC_VERSION = '2023-06-01';
+const ROUTINES_TIMEOUT_MS = 15 * 1000;
+
+async function handlePostRoutinesFire(req, res) {
+  try {
+    const body = await parseBody(req);
+    const routineId = typeof body.routine_id === 'string' ? body.routine_id.trim() : '';
+    if (!routineId) {
+      return sendJson(res, 400, { error: 'routine_id is required' });
+    }
+    const routine = routinesConfig.getRoutine(routineId);
+    if (!routine) {
+      return sendJson(res, 400, {
+        error: `routine_id "${routineId}" not found in vault/_routines-config.md. ` +
+               'Add a YAML block for it, or copy _routines-config.md.template to activate.',
+      });
+    }
+    const envVar = (typeof body.token_env_var === 'string' && body.token_env_var.trim())
+      ? body.token_env_var.trim()
+      : routine.token_env || routinesConfig.defaultTokenEnv(routineId);
+    const token = process.env[envVar];
+    if (!token) {
+      return sendJson(res, 400, {
+        error: `Bearer token env var "${envVar}" is not set. Generate a token on the routine's Edit page and export ${envVar}=<token> before starting the dashboard.`,
+      });
+    }
+
+    const text = typeof body.text === 'string' ? body.text : '';
+    const payload = text.trim() ? JSON.stringify({ text }) : '';
+
+    const headers = {
+      'Authorization': `Bearer ${token}`,
+      'anthropic-beta': ROUTINES_BETA_HEADER,
+      'anthropic-version': ROUTINES_ANTHROPIC_VERSION,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    };
+    if (payload) headers['Content-Length'] = Buffer.byteLength(payload);
+
+    const upstream = https.request({
+      hostname: ROUTINES_API_HOST,
+      port: 443,
+      path: `/v1/claude_code/routines/${encodeURIComponent(routineId)}/fire`,
+      method: 'POST',
+      headers,
+      timeout: ROUTINES_TIMEOUT_MS,
+    }, (up) => {
+      let buf = '';
+      up.on('data', chunk => { buf += chunk.toString('utf8'); });
+      up.on('end', () => {
+        const status = up.statusCode || 502;
+        let parsed = null;
+        try { parsed = JSON.parse(buf); } catch { /* non-JSON upstream */ }
+        if (parsed) {
+          sendJson(res, status, parsed);
+        } else {
+          res.writeHead(status, {
+            'Content-Type': up.headers['content-type'] || 'text/plain',
+            'Access-Control-Allow-Origin': '*',
+          });
+          res.end(buf);
+        }
+      });
+    });
+    upstream.on('error', err => {
+      log(`routines fire upstream error: ${err.message}`);
+      sendJson(res, 502, { error: `upstream error: ${err.message}` });
+    });
+    upstream.on('timeout', () => {
+      upstream.destroy(new Error('upstream timeout'));
+      sendJson(res, 504, { error: 'upstream timeout (15s)' });
+    });
+    if (payload) upstream.write(payload);
+    upstream.end();
+  } catch (err) {
+    log(`POST /api/routines/fire error: ${err.message}`);
+    sendJson(res, 500, { error: err.message });
+  }
+}
+
 // --- static file serving ---
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -564,6 +726,8 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/broadcast' && method === 'POST') return handlePostBroadcast(req, res);
   if (pathname === '/api/a2a/pending' && method === 'GET') return handleGetA2APending(req, res);
   if (pathname === '/api/a2a/handoff' && method === 'POST') return handlePostA2AHandoff(req, res);
+  if (pathname === '/api/handoffs' && method === 'GET') return handleGetHandoffs(req, res, url.searchParams.get('pane'));
+  if (pathname === '/api/routines/fire' && method === 'POST') return handlePostRoutinesFire(req, res);
   if (pathname === '/api/tasks' && method === 'GET') return handleGetTasks(res);
   if (pathname === '/api/events' && method === 'GET') return handleEvents(req, res);
   if (pathname === '/api/spawn' && method === 'POST') return handlePostSpawn(req, res);

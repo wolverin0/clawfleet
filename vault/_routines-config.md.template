@@ -1,0 +1,65 @@
+# Claude Routines Config (template)
+
+This file is the **skeleton** for your routines configuration. To activate:
+
+1. Copy this file to `vault/_routines-config.md` (without the `.template` suffix).
+2. `vault/_routines-config.md` is **gitignored** — tokens never live in here.
+3. Create your routines at https://claude.ai/code/routines — each one has a
+   `routine_id` that looks like `trig_xxxxxxxxxxxx`.
+4. On each routine's **Edit** page, generate a bearer token.
+5. Export the token under the env var named by `token_env` below (see pattern).
+   Default pattern: `ROUTINE_<ID_UPPERCASE_NON_ALNUM_AS_UNDERSCORE>_TOKEN`.
+   So `trig_abc123` → `ROUTINE_TRIG_ABC123_TOKEN`.
+
+## Rules
+
+- **Never** paste a bearer token into this file.
+- **Never** commit `vault/_routines-config.md` to git.
+- Each routine is a fenced ```yaml block below.
+- `triggers` is free-form — tag names you use when deciding whether to fire.
+- The orchestrator will **always escalate** `fire_routine` actions (v1); the
+  user must approve before the dashboard POSTs `/api/routines/fire`.
+
+## Format
+
+```yaml
+id: trig_EXAMPLE123
+token_env: ROUTINE_TRIG_EXAMPLE123_TOKEN
+triggers:
+  - build_failed
+  - stuck_session
+notes: Kicks off a diagnostic routine when CI breaks.
+```
+
+## Example entries (commented out — uncomment and edit)
+
+<!--
+```yaml
+id: trig_replaceme_build_doctor
+token_env: ROUTINE_TRIG_REPLACEME_BUILD_DOCTOR_TOKEN
+triggers:
+  - build_failed
+notes: Build doctor — inspects the last failed CI run and proposes a fix.
+```
+-->
+
+<!--
+```yaml
+id: trig_replaceme_nightly_audit
+token_env: ROUTINE_TRIG_REPLACEME_NIGHTLY_AUDIT_TOKEN
+triggers:
+  - nightly
+  - manual
+notes: Nightly audit — reviews the vault's roadmap and flags stale items.
+```
+-->
+
+<!--
+```yaml
+id: trig_replaceme_pr_reviewer
+token_env: ROUTINE_TRIG_REPLACEME_PR_REVIEWER_TOKEN
+triggers:
+  - pr_opened
+notes: PR reviewer — fetches the diff and leaves review comments.
+```
+-->

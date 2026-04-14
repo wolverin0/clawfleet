@@ -192,6 +192,47 @@ const TOOLS = [
       required: ['pane_id'],
     },
   },
+  {
+    name: 'split_pane',
+    description: 'Split an existing pane into a new one (horizontal = side-by-side, vertical = top/bottom) without launching Claude automatically. Useful for opening a shell, Codex, or any other program next to an existing session. Returns the new pane ID.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pane_id: { type: 'number', description: 'The source pane to split from.' },
+        direction: { type: 'string', enum: ['horizontal', 'vertical'], description: 'Split direction. Default: horizontal (side-by-side).' },
+        cwd: { type: 'string', description: 'Working directory for the new pane. Default: same as source.' },
+        program: { type: 'string', description: 'Program to launch in the new pane (e.g. "bash", "codex", "claude"). Default: user shell.' },
+        args: { type: 'array', items: { type: 'string' }, description: 'Arguments for the program.' },
+      },
+      required: ['pane_id'],
+    },
+  },
+  {
+    name: 'set_tab_title',
+    description: 'Set the WezTerm tab title for a pane. Useful for labeling A2A peer panes (e.g. "app-codex", "app-claude") so both sides of a multi-pane project are identifiable in the tab bar.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pane_id: { type: 'number', description: 'The pane whose tab to rename.' },
+        title: { type: 'string', description: 'The new tab title (recommended: "<project>-<agent>" when two panes share a project).' },
+      },
+      required: ['pane_id', 'title'],
+    },
+  },
+  {
+    name: 'spawn_ssh_domain',
+    description: 'Spawn a pane connected to a WezTerm SSH domain. Requires the domain to be pre-configured in ~/.wezterm.lua. Returns the new pane ID. Use for running a remote Claude/Codex session on another machine while still controlling it from local wezbridge.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        domain: { type: 'string', description: 'The SSH domain name as declared in wezterm.lua.' },
+        cwd: { type: 'string', description: 'Remote working directory. Default: remote home.' },
+        program: { type: 'string', description: 'Remote program to run. Default: remote shell.' },
+        args: { type: 'array', items: { type: 'string' }, description: 'Arguments for the program.' },
+      },
+      required: ['domain'],
+    },
+  },
 ];
 
 // ─── Tool Implementations ─────────────────────────────────────────────────
@@ -555,6 +596,48 @@ function handleToolCall(name, args) {
           content: [{ type: 'text', text: `Error killing pane ${paneId}: ${err.message}` }],
           isError: true,
         };
+      }
+    }
+
+    case 'split_pane': {
+      try {
+        const direction = args.direction === 'vertical' ? 'vertical' : 'horizontal';
+        const opts = {};
+        if (args.cwd) opts.cwd = args.cwd;
+        if (args.program) opts.program = args.program;
+        if (args.args) opts.args = args.args;
+        const newId = direction === 'vertical'
+          ? wez.splitVertical(args.pane_id, opts)
+          : wez.splitHorizontal(args.pane_id, opts);
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ pane_id: newId, direction, source_pane: args.pane_id }, null, 2) }],
+        };
+      } catch (err) {
+        return { content: [{ type: 'text', text: `Error splitting pane ${args.pane_id}: ${err.message}` }], isError: true };
+      }
+    }
+
+    case 'set_tab_title': {
+      try {
+        wez.setTabTitle(args.pane_id, String(args.title));
+        return { content: [{ type: 'text', text: `Pane ${args.pane_id} tab title set to "${args.title}".` }] };
+      } catch (err) {
+        return { content: [{ type: 'text', text: `Error renaming tab: ${err.message}` }], isError: true };
+      }
+    }
+
+    case 'spawn_ssh_domain': {
+      try {
+        const opts = {};
+        if (args.cwd) opts.cwd = args.cwd;
+        if (args.program) opts.program = args.program;
+        if (args.args) opts.args = args.args;
+        const newId = wez.spawnSshDomain(args.domain, opts);
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ pane_id: newId, domain: args.domain, cwd: args.cwd || '(remote home)' }, null, 2) }],
+        };
+      } catch (err) {
+        return { content: [{ type: 'text', text: `Error spawning on SSH domain "${args.domain}": ${err.message}` }], isError: true };
       }
     }
 

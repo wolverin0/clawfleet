@@ -1,0 +1,39 @@
+node_modules/
+.env
+.env.local
+*.log
+logs/
+*.db
+.claude/
+.claude-flow/
+.memory-bridge-hashes.json
+
+# Runtime / local state (don't ship)
+.events.json
+vault/
+obsidian-vault/
+tmp/
+bin/
+handoff.md
+active_tasks.md
+local-biz-sites/
+elchori.md
+
+# Editor / OS junk
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Screenshots and test artifacts
+*.png
+*.jpg
+test-*.py
+
+# clawfleet local scratch
+scripts/.*-test.cjs
+scripts/.*-stub.cjs
+
+# Phase 2 dashboard build output (ignored until built)
+dashboard/dist/
+dashboard/node_modules/

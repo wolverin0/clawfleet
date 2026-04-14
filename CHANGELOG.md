@@ -2,6 +2,21 @@
 
 All notable changes to clawfleet are documented here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.1.0] - 2026-04-14
+
+### Added
+
+- **Desktop dashboard** (Vite + React + TypeScript strict) — pane grid view, live SSE event stream from `omni-watcher.cjs`, active_tasks panel, action buttons (Prompt / Enter / Y / Kill).
+- **`src/dashboard-server.cjs`** — ~200 LOC Node-stdlib HTTP + SSE backend. Endpoints: `GET /api/panes`, `GET /api/panes/:id/output`, `GET /api/tasks`, `GET /api/events` (SSE), `POST /api/panes/:id/prompt|key|kill`, `POST /api/spawn`. Also serves the built SPA from `dashboard/dist/`.
+- **`dashboard/`** — Vite + React app. Dev: `npm run dev` proxies `/api` to `:4200`. Prod: `npm run build` emits `dashboard/dist/` which the backend serves directly.
+- Dark terminal-native theme, snake_case pane shape matching wezbridge MCP contract.
+
+### Not yet in this release
+- A2A pending-corr panel (needs watcher-side state export)
+- Claims feed (MemoryMaster MCP integration)
+- Permission-prompt inline approve/reject buttons (upstream plugin patch required)
+- Auth (assumes localhost-only)
+
 ## [1.0.0] - 2026-04-14
 
 Initial public release as `clawfleet`. Forked in spirit (not in history) from [wolverin0/wezbridge v3.1](https://github.com/wolverin0/wezbridge) — substrate shared, coordination philosophy replaced.

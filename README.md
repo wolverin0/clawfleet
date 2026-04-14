@@ -120,7 +120,7 @@ Paste this prompt into any Claude Code session to auto-install clawfleet:
 
 ## Roadmap
 
-- **Phase 2 — desktop dashboard** (Vite + React). Pane grid, A2A flow view, active-tasks panel, claims feed, monitor events stream. Rebuilds the web dashboard dropped from the v3.1 ancestor.
+- **Phase 2 — desktop dashboard** (Vite + React) — **shipped in v1.1**. See `dashboard/README.md` for dev/build instructions. Pane grid + SSE events stream + tasks panel. A2A flow panel and claims feed still pending.
 - **Phase 3 — port v3.1 features** to the agent-centric architecture:
   - Permission buttons in Telegram (approve/reject tool use)
   - Voice prompts (Whisper transcription)

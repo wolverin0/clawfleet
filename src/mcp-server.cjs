@@ -233,6 +233,36 @@ const TOOLS = [
       required: ['domain'],
     },
   },
+  {
+    name: 'list_workspaces',
+    description: 'List all WezTerm workspaces and the panes in each. Returns {workspaces: [{name, panes: [...pane_ids]}]}. Some older WezTerm versions may not support workspaces — check the CHANGELOG if calls fail.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'switch_workspace',
+    description: 'Switch the active WezTerm workspace. Creates it if it does not exist. Not supported on all WezTerm versions.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Target workspace name.' },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'spawn_in_workspace',
+    description: 'Spawn a new pane in a named workspace. Creates the workspace if absent. Useful for grouping related panes (e.g. all Paperclip-app peers in a "paperclip" workspace). Returns the new pane ID.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspace: { type: 'string', description: 'Workspace name.' },
+        cwd: { type: 'string', description: 'Working directory for the new pane.' },
+        program: { type: 'string', description: 'Program to launch (default: user shell).' },
+        args: { type: 'array', items: { type: 'string' }, description: 'Arguments for the program.' },
+      },
+      required: ['workspace'],
+    },
+  },
 ];
 
 // ─── Tool Implementations ─────────────────────────────────────────────────
@@ -638,6 +668,49 @@ function handleToolCall(name, args) {
         };
       } catch (err) {
         return { content: [{ type: 'text', text: `Error spawning on SSH domain "${args.domain}": ${err.message}` }], isError: true };
+      }
+    }
+
+    case 'list_workspaces': {
+      try {
+        const workspaces = wez.listWorkspaces();
+        // Group panes by workspace for convenience
+        const panes = wez.listPanes();
+        const byWorkspace = {};
+        for (const ws of workspaces) byWorkspace[ws] = [];
+        for (const p of panes) {
+          const ws = p.workspace || 'default';
+          if (!byWorkspace[ws]) byWorkspace[ws] = [];
+          byWorkspace[ws].push(p.pane_id);
+        }
+        const result = Object.entries(byWorkspace).map(([ws, pids]) => ({ name: ws, panes: pids }));
+        return { content: [{ type: 'text', text: JSON.stringify({ workspaces: result }, null, 2) }] };
+      } catch (err) {
+        return { content: [{ type: 'text', text: `Error listing workspaces: ${err.message}` }], isError: true };
+      }
+    }
+
+    case 'switch_workspace': {
+      try {
+        wez.switchWorkspace(String(args.name));
+        return { content: [{ type: 'text', text: `Switched to workspace "${args.name}".` }] };
+      } catch (err) {
+        return { content: [{ type: 'text', text: `Error switching workspace: ${err.message}` }], isError: true };
+      }
+    }
+
+    case 'spawn_in_workspace': {
+      try {
+        const opts = {};
+        if (args.cwd) opts.cwd = args.cwd;
+        if (args.program) opts.program = args.program;
+        if (args.args) opts.args = args.args;
+        const newId = wez.spawnInWorkspace(String(args.workspace), opts);
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ pane_id: newId, workspace: args.workspace }, null, 2) }],
+        };
+      } catch (err) {
+        return { content: [{ type: 'text', text: `Error spawning in workspace "${args.workspace}": ${err.message}` }], isError: true };
       }
     }
 

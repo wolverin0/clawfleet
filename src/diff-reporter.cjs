@@ -66,7 +66,9 @@ function getDiffSummary(cwd, { includeStaged = true, maxFiles = 8 } = {}) {
     };
   });
   const files = [...parseNum(rawU, false), ...parseNum(rawS, true)];
-  if (files.length === 0 && st.clean) return null;
+  // Tracked changes only — untracked files show in status.unstaged but not in diff.
+  // If nothing to diff, return null; callers can inspect getRepoStatus separately.
+  if (files.length === 0) return null;
 
   const totalIns = files.reduce((s, f) => s + f.insertions, 0);
   const totalDel = files.reduce((s, f) => s + f.deletions, 0);

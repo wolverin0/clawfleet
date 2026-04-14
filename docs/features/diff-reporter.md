@@ -4,7 +4,7 @@ Post a compact "what changed" summary to a pane's Telegram topic whenever the pa
 
 ## Why
 
-v3.1 shipped diffs after every Claude response. That was noisy and sometimes contained large unreviewed code snippets in chat. clawfleet ports the useful part (knowing what changed, at a glance) and drops the noisy part (raw diffs inline).
+v3.1 shipped diffs after every Claude response. That was noisy and sometimes contained large unreviewed code snippets in chat. theorchestra ports the useful part (knowing what changed, at a glance) and drops the noisy part (raw diffs inline).
 
 Output is a compact stat + top-8 files breakdown. To see the actual diff a user opens the pane or the web dashboard.
 

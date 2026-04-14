@@ -1,4 +1,4 @@
-// Thin wrapper around the clawfleet dashboard-server HTTP API.
+// Thin wrapper around the theorchestra dashboard-server HTTP API.
 
 export interface Pane {
   pane_id: number;

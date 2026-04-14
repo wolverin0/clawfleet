@@ -1,18 +1,18 @@
 {
-  "name": "clawfleet",
-  "version": "1.5.0",
+  "name": "theorchestra",
+  "version": "1.5.1",
   "description": "Agent-centric multi-agent orchestrator for Claude Code and Codex sessions, with WezTerm panes as the substrate.",
   "type": "commonjs",
   "license": "MIT",
   "author": "Pablo Pauola",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/wolverin0/clawfleet.git"
+    "url": "git+https://github.com/wolverin0/theorchestra.git"
   },
   "bugs": {
-    "url": "https://github.com/wolverin0/clawfleet/issues"
+    "url": "https://github.com/wolverin0/theorchestra/issues"
   },
-  "homepage": "https://github.com/wolverin0/clawfleet#readme",
+  "homepage": "https://github.com/wolverin0/theorchestra#readme",
   "keywords": [
     "claude-code",
     "codex",

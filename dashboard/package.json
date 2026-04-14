@@ -1,9 +1,9 @@
 {
-  "name": "clawfleet-dashboard",
+  "name": "theorchestra-dashboard",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "clawfleet desktop dashboard (Vite + React)",
+  "description": "theorchestra desktop dashboard (Vite + React)",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

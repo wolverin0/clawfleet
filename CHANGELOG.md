@@ -1,15 +1,23 @@
 # Changelog
 
-All notable changes to clawfleet are documented here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+All notable changes to theorchestra are documented here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## [1.5.1] - 2026-04-14
+
+### Renamed — `clawfleet` → `theorchestra`
+
+The project rebranded from `clawfleet` to `theorchestra`. GitHub repo renamed via `gh repo rename` (old URL `wolverin0/clawfleet` redirects to `wolverin0/theorchestra` automatically). Local folder remains at `wezbridge/` for process path stability (per the original folder-rename constraint). MCP namespace remains `wezbridge` (per the same compatibility constraint — existing Claude Code sessions registered the MCP under `wezbridge` and we don't break them).
+
+Mass replacement: 126 string refs across 33 files (all docs, code, config — `clawfleet` → `theorchestra` with capitalization preserved). PM2 app names changed (`clawfleet-streamer` → `theorchestra-streamer`, `clawfleet-dashboard` → `theorchestra-dashboard`); update your `pm2 start ecosystem.config.cjs` invocation if you'd already deployed. `theorchestra-media/` and `theorchestra-voice/` are the new tmpdir cache paths.
 
 ## [1.5.0] - 2026-04-14
 
 ### Added — big feature landing: voice + media + plugins + webhooks
 
 - **`src/voice-handler.cjs`** — OpenAI-compatible Whisper transcription. `downloadTelegramVoice(fileId, botToken)` + `transcribe(path, {language, model, endpoint})`. Zero-dep: pure Node stdlib `https` + manual multipart builder (no `openai` SDK, no `form-data` package). Endpoint overridable for self-hosted Whisper / Groq. Env: `WHISPER_API_KEY`, `WHISPER_ENDPOINT`, `WHISPER_MODEL`, `WHISPER_LANGUAGE`.
-- **`src/media-handler.cjs`** — Telegram photo/document/video/audio/voice → local paths on `os.tmpdir()/clawfleet-media/`. `downloadMessageMedia(msg, botToken)` + `formatPromptPreamble({paths, caption})`. Stable file_id-based filenames (idempotent, no re-downloads). Claude Code's `Read` tool / Codex equivalents open the files directly — no base64, no image processing, no third-party upload.
+- **`src/media-handler.cjs`** — Telegram photo/document/video/audio/voice → local paths on `os.tmpdir()/theorchestra-media/`. `downloadMessageMedia(msg, botToken)` + `formatPromptPreamble({paths, caption})`. Stable file_id-based filenames (idempotent, no re-downloads). Claude Code's `Read` tool / Codex equivalents open the files directly — no base64, no image processing, no third-party upload.
 - **`src/plugin-host.cjs`** + **`plugins/`** — drop-in replacement for `node src/omni-watcher.cjs` in Monitor configs. Loads `plugins/<name>/index.cjs` (or `.cjs` files at the plugins root), dispatches watcher events to `{name, register(ctx)}` modules. Context is deliberately narrow: `wezterm` + `on/emit/log` + `readOutput` — NO bot, NO pane mutation, NO secrets. Plugins observe and emit; OmniClaude decides. Ships with `plugins/example/` (hello-world) + full API ref at `docs/plugins.md`.
-- **`src/github-webhook.cjs`** — HTTP receiver for GitHub webhooks. Verifies `X-Hub-Signature-256` HMAC (timing-safe). Formats `push`, `pull_request`, `issues`, `release`, `workflow_run` events into Telegram-ready HTML chunks. Emits clawfleet events (`source: 'github'`) on stdout — same JSON-per-line pattern as the watcher. Standalone or mountable on an existing http server via `handleRequest(req, res)`.
+- **`src/github-webhook.cjs`** — HTTP receiver for GitHub webhooks. Verifies `X-Hub-Signature-256` HMAC (timing-safe). Formats `push`, `pull_request`, `issues`, `release`, `workflow_run` events into Telegram-ready HTML chunks. Emits theorchestra events (`source: 'github'`) on stdout — same JSON-per-line pattern as the watcher. Standalone or mountable on an existing http server via `handleRequest(req, res)`.
 
 ### Documented
 
@@ -21,7 +29,7 @@ Every new module in this release honors the agent-centric boundary: the observat
 
 ### Still pending
 
-- **Inline mode** (`@clawfleet_bot`) — blocked on an upstream Telegram channel plugin patch for `callback_query` / `inline_query` forwarding. Not clawfleet-side work.
+- **Inline mode** (`@theorchestra_bot`) — blocked on an upstream Telegram channel plugin patch for `callback_query` / `inline_query` forwarding. Not theorchestra-side work.
 
 ## [1.4.0] - 2026-04-14
 
@@ -37,7 +45,7 @@ Every new module in this release honors the agent-centric boundary: the observat
 
 ### Cross-LLM
 
-Project scanner is the first clawfleet module to deliberately index BOTH Claude and Codex sessions — previously every cross-LLM affordance was runtime (spawning Codex panes from Claude). With this, `/projects` can spawn either agent for any project by friendly name.
+Project scanner is the first theorchestra module to deliberately index BOTH Claude and Codex sessions — previously every cross-LLM affordance was runtime (spawning Codex panes from Claude). With this, `/projects` can spawn either agent for any project by friendly name.
 
 ## [1.3.0] - 2026-04-14
 
@@ -45,7 +53,7 @@ Project scanner is the first clawfleet module to deliberately index BOTH Claude 
 
 - **`src/diff-reporter.cjs`** — compact post-session-completed git-stat summary. Returns `{ summary, files, top, html, plain, branch, clean }` or `null` when there are no tracked changes. Designed for OmniClaude to post "what just changed?" to the pane's Telegram topic after a `session_completed` event. CLI mode: `node src/diff-reporter.cjs [cwd] [--json]`. Read-only.
 - **`src/ntfy-notifier.cjs`** — [ntfy.sh](https://ntfy.sh) backup push notification channel. `isEnabled()` returns false when `NTFY_TOPIC` is unset so callers can always-call. Supports public ntfy.sh + self-hosted + token-authenticated instances. 80 LOC, Node stdlib only.
-- **`ecosystem.config.cjs`** — PM2 production supervisor config. Two apps: `clawfleet-streamer` (telegram-streamer.cjs) + `clawfleet-dashboard` (dashboard-server.cjs). Watcher stays under OmniClaude's Monitor tool by default (commented config template included).
+- **`ecosystem.config.cjs`** — PM2 production supervisor config. Two apps: `theorchestra-streamer` (telegram-streamer.cjs) + `theorchestra-dashboard` (dashboard-server.cjs). Watcher stays under OmniClaude's Monitor tool by default (commented config template included).
 
 ### Documented
 
@@ -94,7 +102,7 @@ Project scanner is the first clawfleet module to deliberately index BOTH Claude 
 
 ## [1.0.0] - 2026-04-14
 
-Initial public release as `clawfleet`. Forked in spirit (not in history) from [wolverin0/wezbridge v3.1](https://github.com/wolverin0/wezbridge) — substrate shared, coordination philosophy replaced.
+Initial public release as `theorchestra`. Forked in spirit (not in history) from [wolverin0/wezbridge v3.1](https://github.com/wolverin0/wezbridge) — substrate shared, coordination philosophy replaced.
 
 ### Agent-centric orchestration
 
@@ -139,7 +147,7 @@ Initial public release as `clawfleet`. Forked in spirit (not in history) from [w
 
 ### Compatibility note
 
-The MCP namespace is **`wezbridge`** (not `clawfleet`) to match the tool name agents call (`mcp__wezbridge__*`). The project is called clawfleet; the MCP tool stays `wezbridge` for backward compatibility with any existing Claude Code sessions that already have it registered.
+The MCP namespace is **`wezbridge`** (not `theorchestra`) to match the tool name agents call (`mcp__wezbridge__*`). The project is called theorchestra; the MCP tool stays `wezbridge` for backward compatibility with any existing Claude Code sessions that already have it registered.
 
 ---
 

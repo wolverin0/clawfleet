@@ -1,8 +1,8 @@
-# clawfleet
+# theorchestra
 
 **Multi-agent orchestrator for Claude Code and Codex sessions, with WezTerm panes as the substrate.**
 
-clawfleet lets you run many long-lived AI coding sessions in parallel — each in its own WezTerm pane — and gives them a shared protocol to talk to each other, a shared watcher for crash and silence detection, and a Telegram feed so you can read what they're doing from your phone.
+theorchestra lets you run many long-lived AI coding sessions in parallel — each in its own WezTerm pane — and gives them a shared protocol to talk to each other, a shared watcher for crash and silence detection, and a Telegram feed so you can read what they're doing from your phone.
 
 ```
      ┌──────────────────────────────────────────────────────────┐
@@ -20,9 +20,9 @@ clawfleet lets you run many long-lived AI coding sessions in parallel — each i
               └─ telegram-streamer ▶ live feed per pane → Telegram topic
 ```
 
-## Why clawfleet is different
+## Why theorchestra is different
 
-| | Bot-centric (typical Telegram-Claude bridges) | Agent-centric (clawfleet) |
+| | Bot-centric (typical Telegram-Claude bridges) | Agent-centric (theorchestra) |
 |---|---|---|
 | Coordinator | Node bot monolith | A real Claude Code session (`OmniClaude`) |
 | Message passing | Bot → session, one direction | Peer ↔ peer via wezbridge MCP + envelope protocol |
@@ -31,7 +31,7 @@ clawfleet lets you run many long-lived AI coding sessions in parallel — each i
 | State durability | In-memory | `active_tasks.md` + MemoryMaster claims |
 | Cross-session memory | Per-session | Cross-session via MemoryMaster MCP (optional) |
 
-clawfleet is for workflows where the AI sessions need to talk to each other, survive restarts, and keep working while you're asleep.
+theorchestra is for workflows where the AI sessions need to talk to each other, survive restarts, and keep working while you're asleep.
 
 ## Core pieces
 
@@ -84,8 +84,8 @@ Agents reading their global instructions (`~/.claude/CLAUDE.md` or `~/.codex/AGE
 
 **Install:**
 ```bash
-git clone https://github.com/wolverin0/clawfleet.git
-cd clawfleet
+git clone https://github.com/wolverin0/theorchestra.git
+cd theorchestra
 npm install
 cp env.sample .env     # edit with your bot token + group ID
 ```
@@ -112,9 +112,9 @@ node src/telegram-streamer.cjs
 
 ## Install via agent (experimental)
 
-Paste this prompt into any Claude Code session to auto-install clawfleet:
+Paste this prompt into any Claude Code session to auto-install theorchestra:
 
-> You are being installed as a clawfleet orchestrator. Clone https://github.com/wolverin0/clawfleet to `~/clawfleet/`, run `npm install`, copy the sample config, register the `wezbridge` MCP server with `claude mcp add wezbridge --scope user -- node ~/clawfleet/src/mcp-server.cjs`, create `~/.omniclaude/telegram-topics.json` from the template in the repo, launch `Monitor` with `node ~/clawfleet/src/omni-watcher.cjs`, and greet the user on Telegram with a one-liner. Report done.
+> You are being installed as a theorchestra orchestrator. Clone https://github.com/wolverin0/theorchestra to `~/theorchestra/`, run `npm install`, copy the sample config, register the `wezbridge` MCP server with `claude mcp add wezbridge --scope user -- node ~/theorchestra/src/mcp-server.cjs`, create `~/.omniclaude/telegram-topics.json` from the template in the repo, launch `Monitor` with `node ~/theorchestra/src/omni-watcher.cjs`, and greet the user on Telegram with a one-liner. Report done.
 
 (This is a v1.0 stub — proper install agent coming in Phase 2.)
 
@@ -131,13 +131,13 @@ Paste this prompt into any Claude Code session to auto-install clawfleet:
   - Code diffs post-response
   - GitHub webhooks → topic notifications
   - PM2 process supervision + log rotation
-  - Inline mode (`@clawfleet_bot`)
+  - Inline mode (`@theorchestra_bot`)
   - ntfy.sh backup channel
 - **Phase 4 — Telegram Mini App dashboard** (port of v3.1's 4-tab mobile UI, adapted to agent-centric model).
 
 ## History
 
-clawfleet forks from [wolverin0/wezbridge v3.1](https://github.com/wolverin0/wezbridge) — a bot-centric Telegram ↔ Claude Code bridge. The substrate (WezTerm mux, pane discovery, MCP tools) is shared. The coordination philosophy is not: clawfleet replaces the Node bot monolith with a real Claude Code session as the orchestrator and adds a peer-to-peer A2A protocol so sessions can coordinate directly.
+theorchestra forks from [wolverin0/wezbridge v3.1](https://github.com/wolverin0/wezbridge) — a bot-centric Telegram ↔ Claude Code bridge. The substrate (WezTerm mux, pane discovery, MCP tools) is shared. The coordination philosophy is not: theorchestra replaces the Node bot monolith with a real Claude Code session as the orchestrator and adds a peer-to-peer A2A protocol so sessions can coordinate directly.
 
 ## Contributing
 

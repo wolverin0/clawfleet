@@ -1,6 +1,6 @@
 # Architecture
 
-clawfleet's design choice is **agent-centric orchestration**: a real Claude Code session owns coordination, not a Node bot. Everything else follows from that.
+theorchestra's design choice is **agent-centric orchestration**: a real Claude Code session owns coordination, not a Node bot. Everything else follows from that.
 
 ## Process layout
 
@@ -84,9 +84,9 @@ Every peer-to-peer message uses a parseable envelope header. The full spec is in
 - **Envelope-aware observation** — malformed A2A messages still work as prose but won't be tracked (validation layer is on the Phase 3 roadmap).
 - **Worktree recommendation** — when 2+ peer panes share a repo cwd, use `git worktree add` or declare `| owns=<subdir>/` in the envelope to avoid silent last-write-wins.
 
-## What's deliberately NOT in clawfleet
+## What's deliberately NOT in theorchestra
 
-- **In-process bot UI** — the v3.1 ancestor embedded a Telegram bot + web dashboard in the same process. clawfleet splits them: the streamer is read-only, Telegram inbound is OmniClaude's job, and the dashboard (Phase 2) will be a separate frontend hitting a thin HTTP layer.
+- **In-process bot UI** — the v3.1 ancestor embedded a Telegram bot + web dashboard in the same process. theorchestra splits them: the streamer is read-only, Telegram inbound is OmniClaude's job, and the dashboard (Phase 2) will be a separate frontend hitting a thin HTTP layer.
 - **Plugin system inside the bot** — v3.1 had `plugins/*.cjs` with a context API. Under the agent-centric model, "plugins" are just additional Claude/Codex panes with project-specific roles — the protocol is the API.
 - **Monolithic state** — no single process owns "the world". State is files + MemoryMaster.
 

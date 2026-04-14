@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * clawfleet plugin host — runtime event-bus for user-supplied plugins.
+ * theorchestra plugin host — runtime event-bus for user-supplied plugins.
  *
  * Design notes:
  *  - This is a SIBLING process to omni-watcher.cjs, not a modification of it.
@@ -23,7 +23,7 @@
  *
  * Usage:
  *   node src/plugin-host.cjs                   — spawns watcher, loads all plugins
- *   CLAWFLEET_PLUGINS=dir1,dir2 node host.cjs  — override plugin search dirs
+ *   THEORCHESTRA_PLUGINS=dir1,dir2 node host.cjs  — override plugin search dirs
  *
  * To use via OmniClaude's Monitor tool:
  *   Monitor({ command: "node path/to/src/plugin-host.cjs", persistent: true })
@@ -37,7 +37,7 @@ const { spawn } = require('child_process');
 const wez = require('./wezterm.cjs');
 
 const DEFAULT_PLUGINS_DIR = path.join(__dirname, '..', 'plugins');
-const PLUGIN_DIRS = (process.env.CLAWFLEET_PLUGINS || DEFAULT_PLUGINS_DIR)
+const PLUGIN_DIRS = (process.env.THEORCHESTRA_PLUGINS || DEFAULT_PLUGINS_DIR)
   .split(path.delimiter)
   .map(s => s.trim())
   .filter(Boolean);

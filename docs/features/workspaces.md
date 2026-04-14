@@ -60,6 +60,6 @@ This feature ADDS three new tools to the `wezbridge` MCP. Existing Claude Code s
 ## When to use workspaces vs split_pane
 
 - **Workspaces** = context swap (this feature). Useful when you work on unrelated projects in parallel and want to hide one to focus on the other.
-- **`split_pane`** (from `clawfleet/feat-split-workspace-remote`) = layout within one workspace. Useful for peer panes on the same project (e.g. Claude + Codex side-by-side).
+- **`split_pane`** (from `theorchestra/feat-split-workspace-remote`) = layout within one workspace. Useful for peer panes on the same project (e.g. Claude + Codex side-by-side).
 
 They compose: a "paperclip" workspace can contain two split panes (codex+claude), and a "dude" workspace can contain its own pair.

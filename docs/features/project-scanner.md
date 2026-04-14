@@ -41,7 +41,7 @@ node src/project-scanner.cjs --json | jq '.[] | select(.agent == "codex") | .nam
 Add to `omniclaude/CLAUDE.md` under the "Telegram Interaction" section so OmniClaude responds to `/projects` in DM:
 
 ```
-| "/projects"                 | Run `node /path/to/clawfleet/src/project-scanner.cjs --json --limit 15`.
+| "/projects"                 | Run `node /path/to/theorchestra/src/project-scanner.cjs --json --limit 15`.
 |                             | Format the top 10 as a Telegram message:
 |                             |   `[claude|codex] <name>  ·  N sessions  ·  <age>`
 |                             | Offer to spawn with `/spawn <name>` as a follow-up.

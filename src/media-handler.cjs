@@ -25,7 +25,7 @@ const path = require('path');
 const os = require('os');
 const https = require('https');
 
-const CACHE_DIR = path.join(os.tmpdir(), 'clawfleet-media');
+const CACHE_DIR = path.join(os.tmpdir(), 'theorchestra-media');
 
 function ensureDir(dir) { if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true }); }
 

@@ -10,7 +10,7 @@ Two small operational features shipped together.
 
 1. Pick a unique topic name (think of it as a shared secret — anyone with the name can read it):
    ```bash
-   export NTFY_TOPIC="clawfleet-alerts-<random-suffix>"
+   export NTFY_TOPIC="theorchestra-alerts-<random-suffix>"
    ```
 2. Install the ntfy app on your phone and subscribe to that topic.
 3. (Optional) Self-host: `export NTFY_SERVER="https://ntfy.yourdomain.tld"`.
@@ -53,9 +53,9 @@ Graceful degradation: if `NTFY_TOPIC` is unset, `notify()` returns false instant
 
 | App | Script | Purpose |
 |-----|--------|---------|
-| `clawfleet-streamer` | `src/telegram-streamer.cjs` | live Telegram feed per pane |
-| `clawfleet-dashboard` | `src/dashboard-server.cjs` | web UI backend on port 4200 |
-| `clawfleet-watcher` (commented) | `src/omni-watcher.cjs` | optional headless watcher — usually owned by OmniClaude's Monitor tool instead |
+| `theorchestra-streamer` | `src/telegram-streamer.cjs` | live Telegram feed per pane |
+| `theorchestra-dashboard` | `src/dashboard-server.cjs` | web UI backend on port 4200 |
+| `theorchestra-watcher` (commented) | `src/omni-watcher.cjs` | optional headless watcher — usually owned by OmniClaude's Monitor tool instead |
 
 OmniClaude itself stays OUT of PM2 — it's a Claude Code session running in a WezTerm pane, owned by the human via `scripts/omniclaude-forever.sh`. PM2 manages the headless Node processes, not the TUI.
 
@@ -69,8 +69,8 @@ pm2 start ecosystem.config.cjs
 
 # Status / logs
 pm2 status
-pm2 logs clawfleet-streamer
-pm2 logs clawfleet-dashboard --lines 100
+pm2 logs theorchestra-streamer
+pm2 logs theorchestra-dashboard --lines 100
 
 # Persist across reboot
 pm2 save

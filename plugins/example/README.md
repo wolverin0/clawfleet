@@ -1,6 +1,6 @@
 # hello-world plugin
 
-The canonical clawfleet plugin — does nothing useful, but demonstrates every piece of the plugin API in ~20 lines. Read the source in [`index.cjs`](index.cjs) as the primary documentation.
+The canonical theorchestra plugin — does nothing useful, but demonstrates every piece of the plugin API in ~20 lines. Read the source in [`index.cjs`](index.cjs) as the primary documentation.
 
 ## What it does
 

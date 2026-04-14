@@ -30,7 +30,7 @@ Thumbs.db
 *.jpg
 test-*.py
 
-# clawfleet local scratch
+# theorchestra local scratch
 scripts/.*-test.cjs
 scripts/.*-stub.cjs
 

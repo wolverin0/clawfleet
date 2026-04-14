@@ -4,7 +4,7 @@ Approve, reject, or always-allow tool-use permission prompts from a Telegram top
 
 ## Why this shape (and not inline buttons)
 
-v3.1 of the bot-centric ancestor used Telegram inline keyboards (`[✅ Approve]` / `[❌ Reject]`) for this. That required the bot to own `getUpdates` polling so it could receive `callback_query` updates. In clawfleet, the **Claude Code telegram channel plugin already owns that polling loop** — so any second process calling `getUpdates` on the same bot token would steal updates and break DM routing (see `src/telegram-streamer.cjs` line 599 for the historical note).
+v3.1 of the bot-centric ancestor used Telegram inline keyboards (`[✅ Approve]` / `[❌ Reject]`) for this. That required the bot to own `getUpdates` polling so it could receive `callback_query` updates. In theorchestra, the **Claude Code telegram channel plugin already owns that polling loop** — so any second process calling `getUpdates` on the same bot token would steal updates and break DM routing (see `src/telegram-streamer.cjs` line 599 for the historical note).
 
 Until the channel plugin is patched to forward `callback_query` updates (same pattern as its existing `message_thread_id` forwarding), text commands are the clean path: they flow through the existing message forwarding and need no new polling.
 

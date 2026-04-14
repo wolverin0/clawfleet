@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * clawfleet dashboard server — thin HTTP + SSE layer over wezbridge tooling.
+ * theorchestra dashboard server — thin HTTP + SSE layer over wezbridge tooling.
  *
  * Endpoints:
  *   GET  /api/panes                        — current pane list with status, identity, metrics
@@ -272,7 +272,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  log(`clawfleet dashboard server listening on http://localhost:${PORT}`);
+  log(`theorchestra dashboard server listening on http://localhost:${PORT}`);
   log(`API: /api/panes, /api/tasks, /api/events (SSE)`);
   log(`Static: ${fs.existsSync(STATIC_DIR) ? STATIC_DIR : '(dashboard not built yet)'}`);
 });

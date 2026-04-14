@@ -1,6 +1,6 @@
-# Contributing to clawfleet
+# Contributing to theorchestra
 
-Thanks for wanting to help. clawfleet is young — there's a lot of room for contribution in all three phases (core, dashboard, v3.1 feature rescue).
+Thanks for wanting to help. theorchestra is young — there's a lot of room for contribution in all three phases (core, dashboard, v3.1 feature rescue).
 
 ## Dev setup
 
@@ -12,8 +12,8 @@ Thanks for wanting to help. clawfleet is young — there's a lot of room for con
    - A Telegram bot (`@BotFather`) and a group with Topics enabled (optional, for the streamer)
 2. Fork and clone:
    ```bash
-   git clone https://github.com/<your-user>/clawfleet.git
-   cd clawfleet
+   git clone https://github.com/<your-user>/theorchestra.git
+   cd theorchestra
    npm install
    cp env.sample .env
    # edit with your bot token + group ID if you want live streaming
@@ -54,7 +54,7 @@ One logical change per commit. For multi-file changes on `main`, the `scripts/co
 - `feat/<scope>-<short-name>` — new feature
 - `fix/<scope>-<short-name>` — bug fix
 - `a2a/<topic>` — A2A protocol evolution
-- `clawfleet/<topic>` — meta / rebrand / release work
+- `theorchestra/<topic>` — meta / rebrand / release work
 
 ## Code style
 

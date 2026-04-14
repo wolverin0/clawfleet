@@ -1,4 +1,4 @@
-# clawfleet plugins
+# theorchestra plugins
 
 Each subdirectory of this folder is a user-supplied plugin that hooks into watcher events. Plugins run inside `src/plugin-host.cjs` — a sibling process that spawns the watcher as its child, forwards every event unchanged, AND fans events out to subscribed plugins.
 
@@ -25,14 +25,14 @@ A plugin can also be a bare `.cjs` file at this level — `plugins/my-plugin.cjs
 - To load plugins from a different directory (e.g. per-project), set:
 
   ```bash
-  CLAWFLEET_PLUGINS=/path/to/my-plugins node src/plugin-host.cjs
+  THEORCHESTRA_PLUGINS=/path/to/my-plugins node src/plugin-host.cjs
   ```
 
   Multiple paths separated by `:` (or `;` on Windows).
 
 ## Why not modify the watcher directly?
 
-`omni-watcher.cjs` is part of the clawfleet core and upgraded in new releases. Putting user hooks in plugins keeps the core upgrade-safe and sandboxable — a buggy plugin throws a caught exception, doesn't crash the watcher.
+`omni-watcher.cjs` is part of the theorchestra core and upgraded in new releases. Putting user hooks in plugins keeps the core upgrade-safe and sandboxable — a buggy plugin throws a caught exception, doesn't crash the watcher.
 
 ## What plugins CANNOT do (by design)
 
@@ -40,4 +40,4 @@ A plugin can also be a bare `.cjs` file at this level — `plugins/my-plugin.cjs
 - Mutate pane state directly (send_prompt, send_key, kill) — same reason. Emit an event with a recommendation; OmniClaude is the decision point.
 - Read secrets from env — the host does not pass `process.env` into the plugin context.
 
-If you need one of those capabilities, write a regular Node service instead of a plugin — clawfleet plugins are deliberately a read/observe/emit boundary.
+If you need one of those capabilities, write a regular Node service instead of a plugin — theorchestra plugins are deliberately a read/observe/emit boundary.

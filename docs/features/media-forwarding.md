@@ -1,6 +1,6 @@
 # Feature: Photo / document forwarding
 
-Attach an image, doc, video, or voice clip to a Telegram project topic → clawfleet downloads it to a local cache dir → OmniClaude includes the local path in the prompt it sends to the pane → Claude Code's `Read` tool (or Codex equivalent) opens the file directly.
+Attach an image, doc, video, or voice clip to a Telegram project topic → theorchestra downloads it to a local cache dir → OmniClaude includes the local path in the prompt it sends to the pane → Claude Code's `Read` tool (or Codex equivalent) opens the file directly.
 
 ## Why this shape
 
@@ -13,7 +13,7 @@ const media = require('./src/media-handler.cjs');
 
 // Handling an inbound Telegram message with attachments:
 const { paths, caption, kinds } = await media.downloadMessageMedia(msg, BOT_TOKEN);
-// paths: ['/tmp/clawfleet-media/ABC_123.jpg', '/tmp/clawfleet-media/DEF_456.pdf']
+// paths: ['/tmp/theorchestra-media/ABC_123.jpg', '/tmp/theorchestra-media/DEF_456.pdf']
 // caption: 'look at this, the bug is in the footer'
 // kinds: { photo: {...}, document: {...} }
 
@@ -60,19 +60,19 @@ For images in DM (not in a project topic), use your discretion — you probably 
 Once the preamble is in the pane's prompt:
 
 ```
-[attachment: /tmp/clawfleet-media/AgACAgIAAxkBAAIF...jpg]
+[attachment: /tmp/theorchestra-media/AgACAgIAAxkBAAIF...jpg]
 
 look at this, the bug is in the footer
 ```
 
-Claude Code reads the image via its `Read` tool on the path. Codex reads files similarly with its file-read capability. No clawfleet-side work needed — the Claude/Codex session handles it from here.
+Claude Code reads the image via its `Read` tool on the path. Codex reads files similarly with its file-read capability. No theorchestra-side work needed — the Claude/Codex session handles it from here.
 
 ## Cache location & cleanup
 
-Files live in `os.tmpdir()/clawfleet-media/`. Naming: `<file_id>.<ext>` — stable and idempotent, so re-sending the same photo doesn't re-download. NOT auto-cleaned; drop a cron/scheduled task:
+Files live in `os.tmpdir()/theorchestra-media/`. Naming: `<file_id>.<ext>` — stable and idempotent, so re-sending the same photo doesn't re-download. NOT auto-cleaned; drop a cron/scheduled task:
 
 ```bash
-find $TMPDIR/clawfleet-media -type f -mtime +3 -delete
+find $TMPDIR/theorchestra-media -type f -mtime +3 -delete
 ```
 
 ## Security

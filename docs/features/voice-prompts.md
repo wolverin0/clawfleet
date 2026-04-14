@@ -1,10 +1,10 @@
 # Feature: Voice prompts (Whisper transcription)
 
-Send a Telegram voice message in a project topic → clawfleet transcribes it via OpenAI Whisper (or a compatible endpoint) → the transcript is dispatched to that project's pane as if you typed it.
+Send a Telegram voice message in a project topic → theorchestra transcribes it via OpenAI Whisper (or a compatible endpoint) → the transcript is dispatched to that project's pane as if you typed it.
 
 ## Why agent-centric
 
-The handler is pure: download audio → transcribe → return text. Nothing in clawfleet auto-dispatches. OmniClaude receives the transcript and decides: is this a prompt? An `/approve` command? A question for it (not for the pane)? That decision stays with the coordinator.
+The handler is pure: download audio → transcribe → return text. Nothing in theorchestra auto-dispatches. OmniClaude receives the transcript and decides: is this a prompt? An `/approve` command? A question for it (not for the pane)? That decision stays with the coordinator.
 
 ## Setup
 
@@ -79,10 +79,10 @@ Whisper is charged per minute of audio. For a typical voice command (5-15s) the 
 
 ## Cache / privacy
 
-Downloaded audio files live in `os.tmpdir()/clawfleet-voice/`. They are NOT auto-cleaned — clean them with a cron / scheduled task if voice volume is high:
+Downloaded audio files live in `os.tmpdir()/theorchestra-voice/`. They are NOT auto-cleaned — clean them with a cron / scheduled task if voice volume is high:
 
 ```bash
-find $TMPDIR/clawfleet-voice -type f -mtime +1 -delete
+find $TMPDIR/theorchestra-voice -type f -mtime +1 -delete
 ```
 
 The transcript never persists unless OmniClaude chooses to write it somewhere (MemoryMaster claim, Telegram echo, log). Audio upload goes to the Whisper endpoint — be aware of the endpoint's retention policy.

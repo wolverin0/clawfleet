@@ -3,7 +3,7 @@
  * ntfy.sh backup notification channel.
  *
  * ntfy.sh is a free, no-auth push-notification service. Usage pattern in
- * clawfleet: belt-and-suspenders alerting when Telegram is unavailable
+ * theorchestra: belt-and-suspenders alerting when Telegram is unavailable
  * (rate-limited, bot down, user has DND on). OmniClaude (or any watcher)
  * calls this for P0/P1 events so you get a phone push even when Telegram
  * is silent.

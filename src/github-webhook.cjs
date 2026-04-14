@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * GitHub webhook receiver → clawfleet event stream.
+ * GitHub webhook receiver → theorchestra event stream.
  *
  * Small HTTP server (Node stdlib only) that listens for GitHub webhook
  * POSTs, verifies the X-Hub-Signature-256 HMAC, formats the event into a
- * Telegram-ready HTML chunk, and emits it to stdout as a clawfleet event
+ * Telegram-ready HTML chunk, and emits it to stdout as a theorchestra event
  * — same JSON-per-line pattern as omni-watcher.
  *
  * Agent-centric: this process does NOT post to Telegram. It emits events

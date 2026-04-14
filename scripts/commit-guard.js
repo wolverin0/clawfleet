@@ -18,7 +18,7 @@
  *   ALLOW read-only git commands (status, log, diff, branch, stash list)
  */
 
-// CommonJS — clawfleet's package.json is "type": "commonjs", so the
+// CommonJS — theorchestra's package.json is "type": "commonjs", so the
 // v3.1 ESM-shim wrappers (createRequire/import.meta.url) are unnecessary.
 const { execSync } = require('child_process');
 

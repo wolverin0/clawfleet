@@ -1,6 +1,6 @@
-# clawfleet plugin system
+# theorchestra plugin system
 
-A zero-dependency, observe-and-emit plugin runtime. Plugins hook into watcher events, run arbitrary Node code, and publish their own events back to the clawfleet stream.
+A zero-dependency, observe-and-emit plugin runtime. Plugins hook into watcher events, run arbitrary Node code, and publish their own events back to the theorchestra stream.
 
 ## Architecture
 
@@ -68,7 +68,7 @@ The host loads every `.cjs` file directly under `plugins/` plus every `plugins/<
 
 ### What you do NOT get
 
-- No `ctx.sendMsg` / `ctx.bot` — clawfleet is agent-centric; OmniClaude owns Telegram.
+- No `ctx.sendMsg` / `ctx.bot` — theorchestra is agent-centric; OmniClaude owns Telegram.
 - No `ctx.sendPrompt` / `ctx.sendKey` / `ctx.kill` — plugins observe, they don't act on panes. Emit an event and let OmniClaude decide.
 - No `ctx.fs` / network helpers — plugins can `require('fs')` or `require('https')` themselves; the context doesn't wrap stdlib.
 - No implicit access to `process.env` — if you need an env var, read it explicitly in your plugin's module scope (not passed via ctx).
@@ -119,15 +119,15 @@ OmniClaude can then react to `pane_label_hint` events and call `mcp__wezbridge__
 node src/plugin-host.cjs
 
 # alternate plugin dir (or multiple, separated by : on Unix, ; on Windows)
-CLAWFLEET_PLUGINS=/path/to/my-plugins node src/plugin-host.cjs
+THEORCHESTRA_PLUGINS=/path/to/my-plugins node src/plugin-host.cjs
 ```
 
 Under PM2 (recommended for production):
 
 ```js
-// edit ecosystem.config.cjs — replace the 'clawfleet-watcher' entry (if used)
+// edit ecosystem.config.cjs — replace the 'theorchestra-watcher' entry (if used)
 {
-  name: 'clawfleet-plugin-host',
+  name: 'theorchestra-plugin-host',
   script: 'src/plugin-host.cjs',
   autorestart: true,
   max_memory_restart: '512M',
@@ -144,6 +144,6 @@ Under PM2 (recommended for production):
 
 ## Compared to v3.1
 
-v3.1 plugins received `ctx.bot`, `ctx.registerCommand`, `ctx.sendMsg` because the bot was in-process. clawfleet splits coordinator and observer: the bot is a separate Claude Code session (OmniClaude), so those hooks don't belong in the observer-side plugin API. Plugins that need to prompt the user write events OmniClaude can interpret; they don't send messages themselves.
+v3.1 plugins received `ctx.bot`, `ctx.registerCommand`, `ctx.sendMsg` because the bot was in-process. theorchestra splits coordinator and observer: the bot is a separate Claude Code session (OmniClaude), so those hooks don't belong in the observer-side plugin API. Plugins that need to prompt the user write events OmniClaude can interpret; they don't send messages themselves.
 
 If you need a v3.1-style command handler (`/mycommand`), handle it in OmniClaude's CLAUDE.md rules, not in a plugin.

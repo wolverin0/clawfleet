@@ -1,5 +1,5 @@
 /**
- * PM2 ecosystem config for clawfleet production supervision.
+ * PM2 ecosystem config for theorchestra production supervision.
  *
  * Usage:
  *   pm2 start ecosystem.config.cjs
@@ -20,7 +20,7 @@
 module.exports = {
   apps: [
     {
-      name: 'clawfleet-streamer',
+      name: 'theorchestra-streamer',
       script: 'src/telegram-streamer.cjs',
       autorestart: true,
       watch: false,
@@ -32,7 +32,7 @@ module.exports = {
       },
     },
     {
-      name: 'clawfleet-dashboard',
+      name: 'theorchestra-dashboard',
       script: 'src/dashboard-server.cjs',
       autorestart: true,
       watch: false,
@@ -49,7 +49,7 @@ module.exports = {
     // independent of any Claude Code session (e.g. for dashboard-only use).
     //
     // {
-    //   name: 'clawfleet-watcher',
+    //   name: 'theorchestra-watcher',
     //   script: 'src/omni-watcher.cjs',
     //   autorestart: true,
     //   watch: false,

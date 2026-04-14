@@ -1,6 +1,6 @@
-# clawfleet dashboard
+# theorchestra dashboard
 
-Desktop web UI for the clawfleet multi-agent orchestrator. Vite + React + TypeScript. Talks to the `dashboard-server.cjs` backend over HTTP and SSE.
+Desktop web UI for the theorchestra multi-agent orchestrator. Vite + React + TypeScript. Talks to the `dashboard-server.cjs` backend over HTTP and SSE.
 
 ## What it shows
 

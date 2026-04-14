@@ -33,7 +33,7 @@ const https = require('https');
 const DEFAULT_ENDPOINT = process.env.WHISPER_ENDPOINT || 'https://api.openai.com/v1/audio/transcriptions';
 const DEFAULT_MODEL    = process.env.WHISPER_MODEL    || 'whisper-1';
 const DEFAULT_LANGUAGE = process.env.WHISPER_LANGUAGE || null;
-const CACHE_DIR        = path.join(os.tmpdir(), 'clawfleet-voice');
+const CACHE_DIR        = path.join(os.tmpdir(), 'theorchestra-voice');
 
 function isEnabled() {
   return !!process.env.WHISPER_API_KEY;
@@ -113,7 +113,7 @@ async function transcribe(filePath, { language, model, endpoint } = {}) {
   if (!fs.existsSync(filePath)) throw new Error(`transcribe: file not found: ${filePath}`);
 
   const url = new URL(endpoint || DEFAULT_ENDPOINT);
-  const boundary = '----clawfleetvoice' + Math.random().toString(16).slice(2);
+  const boundary = '----theorchestravoice' + Math.random().toString(16).slice(2);
   const fileName = path.basename(filePath);
   const fileBuf = fs.readFileSync(filePath);
   const useModel = model || DEFAULT_MODEL;

@@ -1,5 +1,5 @@
 /**
- * hello-world — the canonical clawfleet plugin.
+ * hello-world — the canonical theorchestra plugin.
  *
  * Demonstrates every piece of the plugin API:
  *  - ctx.on(event, handler)   subscribe to watcher events

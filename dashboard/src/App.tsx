@@ -43,7 +43,7 @@ export function App() {
   return (
     <div className="app">
       <header className="header">
-        <h1>clawfleet</h1>
+        <h1>theorchestra</h1>
         <span className="badge">
           {panes.length} pane{panes.length === 1 ? '' : 's'}
           {error ? ` · ${error}` : ''}

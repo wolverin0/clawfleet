@@ -1,6 +1,6 @@
 # Feature: GitHub webhooks → topic notifications
 
-When a repo emits a webhook (push, PR, issue, release, workflow run), clawfleet formats it into a Telegram-ready HTML chunk and publishes it to the event stream. OmniClaude routes the event to the matching project topic.
+When a repo emits a webhook (push, PR, issue, release, workflow run), theorchestra formats it into a Telegram-ready HTML chunk and publishes it to the event stream. OmniClaude routes the event to the matching project topic.
 
 ## Why agent-centric
 
@@ -54,7 +54,7 @@ Add to `ecosystem.config.cjs`:
 
 ```js
 {
-  name: 'clawfleet-github-webhook',
+  name: 'theorchestra-github-webhook',
   script: 'src/github-webhook.cjs',
   autorestart: true,
   max_memory_restart: '256M',
@@ -94,8 +94,8 @@ Every emitted event has at least:
   "ts": "2026-04-14T03:00:00.000Z",
   "source": "github",
   "event": "push",
-  "repo": "wolverin0/clawfleet",
-  "html": "🔀 <b>push</b> to <code>wolverin0/clawfleet</code>…",
+  "repo": "wolverin0/theorchestra",
+  "html": "🔀 <b>push</b> to <code>wolverin0/theorchestra</code>…",
   "delivery": "abc-123-uuid"
 }
 ```
@@ -108,8 +108,8 @@ Add a project-to-repo map in OmniClaude's config (e.g. `~/.omniclaude/github-rep
 
 ```json
 {
-  "wolverin0/clawfleet": "clawfleet",
-  "wolverin0/wezbridge": "clawfleet",
+  "wolverin0/theorchestra": "theorchestra",
+  "wolverin0/wezbridge": "theorchestra",
   "wolverin0/memorymaster": "memorymaster"
 }
 ```

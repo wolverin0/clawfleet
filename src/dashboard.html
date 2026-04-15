@@ -465,6 +465,58 @@ code, pre, .mono { font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace
   .sidebar-item-name { max-width: 70px; }
 }
 
+/* ─── Mobile responsive Nivel 2 (v2.4.1) ───
+   Adds: swipeable drawer for activity sidebar (touch pan),
+   bottom nav bar for tabs (fixed at bottom of viewport),
+   full-screen handoff/history modals.
+*/
+@media (max-width: 768px) {
+  /* Bottom navigation bar replaces topbar tabs on mobile. We keep the topbar
+     tabs visible (they still work) but add a bottom nav as the primary way
+     to switch views — thumb-friendly, iOS/Android-native pattern. */
+  #bottomNav {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    display: flex; justify-content: space-around; align-items: stretch;
+    background: rgba(15, 17, 22, 0.95); backdrop-filter: blur(20px);
+    border-top: 1px solid var(--glass-border);
+    padding: 6px 2px 10px; z-index: 500;
+    height: 64px;
+  }
+  #bottomNav a {
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 3px; padding: 6px 4px;
+    color: var(--text-secondary); text-decoration: none; cursor: pointer;
+    border-radius: 10px; font-size: 10px; font-weight: 500;
+    min-height: 44px; transition: color 0.15s;
+  }
+  #bottomNav a.active { color: var(--accent); }
+  #bottomNav a:hover { color: var(--text-primary); }
+  #bottomNav .nav-icon { font-size: 20px; line-height: 1; }
+  #bottomNav .nav-label { font-size: 10px; letter-spacing: 0.3px; }
+
+  /* Push page content up so bottom nav doesn't cover anything */
+  body { padding-bottom: 64px; }
+  /* Tasks strip sits above bottom nav when visible */
+  #tasksStrip { bottom: 64px !important; }
+  /* The activity drawer spans from topbar to bottom nav */
+  #activitySidebar { bottom: 64px !important; }
+
+  /* Swipe-from-right-edge hint: a thin tappable strip on the right edge
+     that makes the drawer-open affordance obvious even without the ☰ button
+     being visible. */
+  #swipeEdgeHint {
+    position: fixed; top: 36px; right: 0; bottom: 64px;
+    width: 8px; z-index: 450;
+    background: linear-gradient(to left, rgba(120, 120, 255, 0.15), transparent);
+    pointer-events: auto;
+  }
+  #activitySidebar.as-mobile-visible ~ #swipeEdgeHint { display: none; }
+}
+
+@media (min-width: 769px) {
+  #bottomNav, #swipeEdgeHint { display: none; }
+}
+
 /* ─── v2.3 Activity Sidebar (right rail) ─── */
 .app-shell { display: flex; flex-direction: column; height: calc(100vh - 36px); }
 .app-row { display: flex; flex: 1; min-height: 0; }
@@ -762,6 +814,15 @@ code, pre, .mono { font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace
   </div>
 </div>
 <div id="mobileSidebarBackdrop" onclick="toggleMobileSidebar(false)"></div>
+<!-- Mobile bottom nav (Nivel 2) — shown only at <=768px via CSS -->
+<nav id="bottomNav" role="tablist" aria-label="Views">
+  <a data-view="sessions" onclick="switchView('sessions')"><span class="nav-icon">▤</span><span class="nav-label">Sessions</span></a>
+  <a data-view="live" onclick="switchView('live')"><span class="nav-icon">◉</span><span class="nav-label">Live</span></a>
+  <a data-view="desktop" onclick="switchView('desktop')"><span class="nav-icon">▦</span><span class="nav-label">Desktop</span></a>
+  <a data-view="spawn" onclick="switchView('spawn')"><span class="nav-icon">+</span><span class="nav-label">Spawn</span></a>
+</nav>
+<!-- Swipe edge hint (Nivel 2) — thin strip on right edge to open drawer by touch -->
+<div id="swipeEdgeHint" aria-hidden="true"></div>
 
 <div class="app-shell">
 <div class="app-row">
@@ -2116,6 +2177,80 @@ window.addEventListener('resize', () => {
     document.getElementById('mobileSidebarBackdrop').classList.remove('visible');
   }
 });
+
+// ─── Mobile Nivel 2: swipe gestures + bottom nav sync ───
+
+// Swipe-from-right-edge to open the activity drawer.
+// We listen on the entire document for touchstart/touchmove/touchend. If the
+// initial touch is within 24px of the right edge AND the gesture is mostly
+// horizontal leftward of at least 50px, open the drawer.
+(function enableSwipeGestures() {
+  let startX = 0, startY = 0, tracking = false;
+  const EDGE_THRESHOLD = 24;       // px from right edge
+  const OPEN_DISTANCE = 50;        // min horizontal leftward travel to trigger
+  const AXIS_RATIO = 1.5;          // horizontal must dominate vertical by this factor
+
+  document.addEventListener('touchstart', (e) => {
+    if (!isMobile()) return;
+    const t = e.touches[0];
+    if (!t) return;
+    // Only track when finger starts near the right edge AND drawer is closed
+    if (t.clientX < window.innerWidth - EDGE_THRESHOLD) return;
+    if (document.getElementById('activitySidebar').classList.contains('as-mobile-visible')) return;
+    startX = t.clientX; startY = t.clientY; tracking = true;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', (e) => {
+    if (!tracking) return;
+    const t = e.touches[0]; if (!t) return;
+    const dx = startX - t.clientX; // positive = leftward (opening direction)
+    const dy = Math.abs(startY - t.clientY);
+    if (dx > OPEN_DISTANCE && dx > dy * AXIS_RATIO) {
+      toggleMobileSidebar(true);
+      tracking = false;
+    }
+  }, { passive: true });
+
+  document.addEventListener('touchend', () => { tracking = false; }, { passive: true });
+
+  // Also allow a tap on #swipeEdgeHint to open (discoverability for non-swipers).
+  const hint = document.getElementById('swipeEdgeHint');
+  if (hint) hint.addEventListener('click', () => isMobile() && toggleMobileSidebar(true));
+
+  // Swipe-right inside the open drawer closes it.
+  const drawer = document.getElementById('activitySidebar');
+  let drawerStartX = 0, drawerTracking = false;
+  drawer.addEventListener('touchstart', (e) => {
+    if (!isMobile()) return;
+    if (!drawer.classList.contains('as-mobile-visible')) return;
+    drawerStartX = e.touches[0].clientX; drawerTracking = true;
+  }, { passive: true });
+  drawer.addEventListener('touchmove', (e) => {
+    if (!drawerTracking) return;
+    const dx = e.touches[0].clientX - drawerStartX; // positive = rightward (close dir)
+    if (dx > OPEN_DISTANCE) { toggleMobileSidebar(false); drawerTracking = false; }
+  }, { passive: true });
+  drawer.addEventListener('touchend', () => { drawerTracking = false; }, { passive: true });
+})();
+
+// Sync bottom-nav active state with the current view (whenever switchView runs).
+function syncBottomNav(view) {
+  document.querySelectorAll('#bottomNav a').forEach(a => {
+    a.classList.toggle('active', a.dataset.view === view);
+  });
+}
+// Wrap the existing switchView without breaking its signature.
+(function wrapSwitchView() {
+  if (typeof window.switchView !== 'function') return;
+  const orig = window.switchView;
+  window.switchView = function(view) {
+    const r = orig.apply(this, arguments);
+    try { syncBottomNav(view); } catch {}
+    return r;
+  };
+  // Initialize nav state
+  syncBottomNav(typeof currentView === 'string' ? currentView : 'sessions');
+})();
 
 // ─── Per-panel collapse state ───
 function toggleAsPanel(key) {

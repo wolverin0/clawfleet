@@ -705,19 +705,48 @@ function serveStatic(res, urlPath) {
 
 // --- CSRF / cross-origin defense for POST endpoints ---
 //
-// Threat: the dashboard serves on localhost:4200 with zero auth — a malicious
-// website opened in the same browser could POST to /api/panes/:id/kill etc
-// via fetch() and kill panes, inject prompts, exfiltrate handoffs, etc.
+// Threat: the dashboard serves on PORT with zero auth — a malicious website
+// opened in the same browser could POST to /api/panes/:id/kill etc via
+// fetch() and kill panes, inject prompts, exfiltrate handoffs, etc.
 //
 // Browsers ALWAYS send an `Origin` header on cross-origin requests with
 // non-trivial methods (POST with Content-Type: application/json is one).
-// Same-origin requests from our own dashboard HTML set Origin to
-// http://localhost:4200 (or 127.0.0.1:4200). Curl/CLI requests omit Origin
-// entirely — we allow those (no browser = no CSRF vector).
-const ALLOWED_ORIGINS = new Set([
-  `http://localhost:${PORT}`,
-  `http://127.0.0.1:${PORT}`,
-]);
+// Same-origin requests from our own dashboard HTML set Origin to the host
+// they loaded from. Curl/CLI requests omit Origin entirely — we allow
+// those (no browser = no CSRF vector).
+//
+// Allowed origins are computed at boot: localhost + 127.0.0.1 + every
+// non-internal IPv4/IPv6 address assigned to a local network interface.
+// This means phones/tablets/other devices on the LAN can hit the
+// dashboard at http://<machine-lan-ip>:PORT/ and POST actions will
+// succeed (same-origin from their perspective). DHCP rotations require
+// a dashboard restart.
+const os = require('os');
+
+function computeAllowedOrigins() {
+  const origins = new Set([
+    `http://localhost:${PORT}`,
+    `http://127.0.0.1:${PORT}`,
+    `http://[::1]:${PORT}`,
+  ]);
+  try {
+    const ifaces = os.networkInterfaces();
+    for (const name of Object.keys(ifaces)) {
+      for (const addr of ifaces[name] || []) {
+        if (addr.internal) continue;
+        if (addr.family === 'IPv4' || addr.family === 4) {
+          origins.add(`http://${addr.address}:${PORT}`);
+        } else if (addr.family === 'IPv6' || addr.family === 6) {
+          // IPv6 literal in URL requires brackets
+          origins.add(`http://[${addr.address.replace(/%.*$/, '')}]:${PORT}`);
+        }
+      }
+    }
+  } catch (e) { log(`networkInterfaces() failed: ${e.message}`); }
+  return origins;
+}
+
+const ALLOWED_ORIGINS = computeAllowedOrigins();
 
 function isOriginAllowed(req) {
   const origin = req.headers.origin;
@@ -792,6 +821,9 @@ const server = http.createServer(async (req, res) => {
 
   sendJson(res, 404, { error: 'not found' });
 });
+
+// Log allowed origins on boot so the user sees what LAN addresses work.
+log(`allowed origins (CSRF): ${Array.from(ALLOWED_ORIGINS).join(', ')}`);
 
 server.listen(PORT, () => {
   log(`theorchestra dashboard server listening on http://localhost:${PORT}`);

@@ -465,6 +465,38 @@ code, pre, .mono { font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace
   .sidebar-item-name { max-width: 70px; }
 }
 
+/* ─── Mobile notification hotfix (v2.4.2) ───
+   Two notification systems were firing simultaneously: the legacy
+   .feed-notification (v3.1, fixed top:44px right:20px max-width:360px,
+   no pointer-events control) and the newer #toastStack (v2.3, pointer-events:
+   none on container, all on toasts). On mobile the legacy notification sits
+   RIGHT ON TOP of the session pill bar (which lives around y=36-86px) and
+   blocks taps — reported bug: "Elduderino working, can't do anything mobile".
+
+   Fix:
+   1. Hide the legacy .feed-notification on mobile (redundant with #toastStack).
+   2. Move #toastStack to the BOTTOM of the screen (above the nav) on mobile so
+      it never covers the session pill bar / tab content at the top.
+   3. Full-width toasts on mobile (better UX than 320px fixed-right).
+*/
+@media (max-width: 768px) {
+  .feed-notification { display: none !important; }
+  #toastStack {
+    top: auto !important;
+    bottom: 76px !important;   /* above bottom nav (64) + gap */
+    right: 8px !important;
+    left: 8px !important;
+    width: auto !important;
+    max-height: 40vh;
+    overflow-y: auto;
+    pointer-events: none;       /* keep: only .v2-toast inside capture taps */
+  }
+  /* Also: make sure the notifications at top-right of .notif-stack (legacy
+     desktop overlays on Desktop view) don't hijack mobile — they're inside
+     #desktopArea which is hidden on mobile anyway, but be explicit. */
+  .notif-stack { display: none !important; }
+}
+
 /* ─── Mobile responsive Nivel 2 (v2.4.1) ───
    Adds: swipeable drawer for activity sidebar (touch pan),
    bottom nav bar for tabs (fixed at bottom of viewport),

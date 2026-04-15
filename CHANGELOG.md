@@ -2,6 +2,26 @@
 
 All notable changes to theorchestra are documented here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.4.2] - 2026-04-15
+
+### Mobile hotfix — legacy notification blocked session bar
+
+Bug reported: "Elduderino [app pane] figura como working y no puedo hacer nada en omniclaude mobile" (T-058). Two notification systems were firing simultaneously on the same events:
+
+1. **Legacy `.feed-notification`** (v3.1) at `position: fixed; top: 44px; right: 20px; max-width: 360px` with no `pointer-events` control.
+2. **v2.3 `#toastStack`** (newer, with `pointer-events: none` on container + `all` on children).
+
+On the mobile layout the sessions pill bar lives around y=36-86px. The legacy notification sits RIGHT ON TOP of it, 360px wide on a 390px viewport = basically full-width — taps to switch sessions (including to omniclaude) landed on the invisible notification's `cursor:pointer` handler instead of the session pill behind it. 8s auto-dismiss meant the block lasted 8s every time a pane completed or needed permission.
+
+### Fix
+
+`@media (max-width: 768px)`:
+- `.feed-notification { display: none !important }` — hide the legacy system on mobile (redundant with `#toastStack`)
+- `#toastStack`: reposition to bottom of viewport (`bottom: 76px`, above the nav), full-width with 8px gutters, `max-height: 40vh overflow-y: auto`, preserves `pointer-events: none` on container
+- `.notif-stack { display: none !important }` — belt-and-suspenders hide of the Desktop-view notif overlay system (already hidden because Desktop view is blocked on touch, but explicit)
+
+Verified via Playwright @ 390×844: session pill bar no longer overlapped when a notification is active, 18/18 smoke tests still pass.
+
 ## [2.4.1] - 2026-04-15
 
 ### Mobile responsive + LAN access

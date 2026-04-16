@@ -881,6 +881,69 @@ code, pre, .mono { font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace
 
 .dwin-header .a2a-badge, .dwin-header .handoff-btn, .dwin-header .handoff-history-btn { margin-left: 4px; }
 .sidebar-item .sidebar-item-extras { display: flex; gap: 3px; align-items: center; }
+
+/* ─── v2.6 Ctx badges ─── */
+.ctx-badge {
+  display: inline-block; font-size: 9px; font-weight: 600;
+  padding: 1px 5px; border-radius: 8px; margin-left: 4px;
+  font-family: 'JetBrains Mono', monospace; vertical-align: middle;
+}
+.ctx-badge.ctx-low { background: oklch(0.75 0.18 155 / 0.15); color: var(--green); }
+.ctx-badge.ctx-normal { color: var(--text-secondary); }
+.ctx-badge.ctx-warn { background: oklch(0.80 0.18 85 / 0.15); color: var(--yellow); }
+.ctx-badge.ctx-high { background: oklch(0.65 0.22 25 / 0.15); color: var(--red); animation: pulse 1.4s infinite; }
+
+/* ─── v2.6 Auto-handoff button ─── */
+.auto-handoff-btn {
+  font-size: 10px; padding: 3px 8px; border-radius: 5px;
+  background: oklch(0.65 0.22 25 / 0.15); color: var(--red);
+  border: 1px solid oklch(0.65 0.22 25 / 0.3);
+  cursor: pointer; font-family: inherit; font-weight: 600;
+  transition: all 0.12s;
+}
+.auto-handoff-btn:hover { background: oklch(0.65 0.22 25 / 0.3); }
+
+/* ─── v2.6 Topbar toggle ─── */
+.topbar-toggle {
+  font-size: 11px; cursor: pointer; padding: 2px 6px; border-radius: 4px;
+  user-select: none; transition: all 0.15s;
+  font-family: 'JetBrains Mono', monospace; font-weight: 600;
+}
+.topbar-toggle:hover { background: var(--bg-hover); }
+.topbar-toggle.mode-suggest { color: var(--yellow); }
+.topbar-toggle.mode-enforce { color: var(--red); }
+
+/* ─── v2.6 Auto-handoff countdown overlay ─── */
+.auto-handoff-overlay {
+  position: fixed; inset: 0; z-index: 500;
+  background: rgba(180, 30, 30, 0.15); backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 16px;
+}
+.auto-handoff-overlay .ahc-title {
+  font-size: 28px; font-weight: 800; color: var(--red); letter-spacing: -0.5px;
+}
+.auto-handoff-overlay .ahc-sub {
+  font-size: 13px; color: var(--text-secondary); max-width: 480px; text-align: center;
+}
+.auto-handoff-overlay .ahc-timer {
+  font-size: 72px; font-weight: 900; color: var(--text-primary);
+  font-family: 'JetBrains Mono', monospace;
+}
+.auto-handoff-overlay .ahc-cancel {
+  padding: 10px 28px; border-radius: 8px; border: 2px solid var(--red);
+  background: transparent; color: var(--red); font-size: 14px; font-weight: 700;
+  cursor: pointer; transition: all 0.15s;
+}
+.auto-handoff-overlay .ahc-cancel:hover { background: var(--red); color: #fff; }
+
+/* ─── v2.6 Toast action buttons ─── */
+.v2-toast-actions { display: flex; gap: 6px; margin-top: 6px; }
+.v2-toast-actions button {
+  font-size: 10px; padding: 3px 10px; border-radius: 4px; cursor: pointer;
+  font-family: inherit; font-weight: 600; border: 1px solid var(--border-subtle);
+  background: var(--bg-hover); color: var(--text-primary); transition: all 0.12s;
+}
+.v2-toast-actions button:hover { background: var(--bg-active); }
 .pane-highlight-pulse { animation: paneHighlightPulse 1.5s ease-out; }
 @keyframes paneHighlightPulse {
   0% { box-shadow: 0 0 0 0 var(--accent); }
@@ -935,6 +998,7 @@ code, pre, .mono { font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace
     <div class="topbar-stat"><div class="dot idle"></div><span id="topIdle">0</span></div>
     <div class="topbar-stat"><div class="dot working"></div><span id="topWorking">0</span></div>
     <div class="topbar-stat"><div class="dot permission"></div><span id="topPerm">0</span></div>
+    <span id="autoHandoffToggle" class="topbar-toggle" onclick="cycleAutoHandoff()" title="Auto-handoff mode">&#129302; off</span>
     <div class="topbar-time" id="clock"></div>
     <span id="sidebarToggleTop" onclick="toggleActivitySidebar()" style="cursor:pointer;padding:2px 8px;border-radius:4px;color:var(--text-secondary);user-select:none" title="Toggle activity sidebar">▸</span>
     <button id="mobileSidebarToggle" onclick="toggleMobileSidebar()" aria-label="Toggle activity panel" style="display:none">☰</button>
@@ -2821,6 +2885,13 @@ function hookSSE() {
       if (event.type === 'a2a_handoff' || event.event === 'a2a_handoff') {
         recordHandoffHistory(event);
       }
+      // v2.6 Auto-handoff SSE events
+      if (event.type === 'autoHandoffSuggest' || event.event === 'autoHandoffSuggest') {
+        handleAutoHandoffSuggest(event);
+      }
+      if (event.type === 'autoHandoffUrgent' || event.event === 'autoHandoffUrgent') {
+        handleAutoHandoffUrgent(event);
+      }
     } catch {}
     // Delegate to original handler
     if (origOnMsg) origOnMsg.call(sse, e);
@@ -2868,17 +2939,28 @@ function showOrphanToast(event) {
 }
 
 // ─── Generic toast helpers ───
-function pushToast({ kind, title, body, onClick, ttl }) {
+function pushToast({ kind, title, body, onClick, actions, ttl }) {
   const stack = document.getElementById('toastStack');
   if (!stack) return;
   const el = document.createElement('div');
   el.className = 'v2-toast ' + (kind || 'info');
-  el.innerHTML =
-    '<span class="v2-toast-close" title="Dismiss">✕</span>' +
+  let html = '<span class="v2-toast-close" title="Dismiss">\u2715</span>' +
     '<div class="v2-toast-title">' + esc(title || '') + '</div>' +
     (body ? '<div class="v2-toast-body">' + (body) + '</div>' : '');
+  if (Array.isArray(actions) && actions.length) {
+    html += '<div class="v2-toast-actions">' +
+      actions.map((a, i) => '<button data-action-idx="' + i + '">' + esc(a.label || 'Action') + '</button>').join('') +
+      '</div>';
+  }
+  el.innerHTML = html;
   el.querySelector('.v2-toast-close').onclick = (e) => { e.stopPropagation(); el.remove(); };
-  if (onClick) el.onclick = () => { try { onClick(); } catch {} el.remove(); };
+  if (Array.isArray(actions)) {
+    el.querySelectorAll('.v2-toast-actions button').forEach(btn => {
+      const idx = parseInt(btn.dataset.actionIdx, 10);
+      btn.onclick = (e) => { e.stopPropagation(); try { actions[idx].onclick(); } catch {} el.remove(); };
+    });
+  }
+  if (onClick && !actions) el.onclick = () => { try { onClick(); } catch {} el.remove(); };
   stack.appendChild(el);
   setTimeout(() => el.remove(), ttl || 6000);
 }
@@ -3151,15 +3233,22 @@ renderSidebar = function() {
   }
   el.innerHTML = sessions.map(s => {
     const active = activePane === s.pane_id ? 'active' : '';
+    const ctxBadge = s.ctx != null ? (function() {
+      const ctxText = Math.round(s.ctx) + '%';
+      const ctxLevel = s.ctx < 20 ? 'low' : s.ctx < 30 ? 'normal' : s.ctx < 45 ? 'warn' : 'high';
+      return '<span class="ctx-badge ctx-' + ctxLevel + '">' + ctxText + '</span>';
+    })() : '';
     return '<div class="sidebar-item ' + active + '" data-pane="' + s.pane_id + '" onclick="selectSession(' + s.pane_id + ')">' +
       '<div class="dot ' + esc(s.status) + '"></div>' +
+      ctxBadge +
       '<span class="sidebar-item-name">' + esc(s.project_name || 'pane ' + s.pane_id) + '</span>' +
       (s.persona ? '<span class="persona-badge">' + esc(s.persona) + '</span>' : '') +
       '<span class="sidebar-item-a2a"></span>' +
       '<span class="sidebar-item-pane">' + s.pane_id + '</span>' +
       '<div class="sidebar-item-extras">' +
-        '<button class="handoff-btn" title="Handoff" onclick="event.stopPropagation();openHandoffDropdown(' + s.pane_id + ',this)">↗</button>' +
-        '<button class="handoff-history-btn" title="History" onclick="event.stopPropagation();openHandoffHistory(' + s.pane_id + ')">📜</button>' +
+        '<button class="handoff-btn" title="Handoff" onclick="event.stopPropagation();openHandoffDropdown(' + s.pane_id + ',this)">&#8599;</button>' +
+        '<button class="handoff-history-btn" title="History" onclick="event.stopPropagation();openHandoffHistory(' + s.pane_id + ')">&#128220;</button>' +
+        '<button class="auto-handoff-btn" title="Handoff &amp; Clear" onclick="event.stopPropagation();openAutoHandoffModal(' + s.pane_id + ')">&#128260;</button>' +
       '</div>' +
     '</div>';
   }).join('');
@@ -3180,6 +3269,16 @@ dtCreateWin = function(s) {
   slot.className = 'dwin-a2a-slot';
   slot.style.cssText = 'display:inline-flex;gap:3px;align-items:center';
   if (nameEl && nameEl.parentNode) nameEl.parentNode.insertBefore(slot, nameEl.nextSibling);
+  // Ctx badge in Desktop window header
+  if (s.ctx != null) {
+    const ctxLevel = s.ctx < 20 ? 'low' : s.ctx < 30 ? 'normal' : s.ctx < 45 ? 'warn' : 'high';
+    const ctxEl = document.createElement('span');
+    ctxEl.className = 'ctx-badge ctx-' + ctxLevel;
+    ctxEl.textContent = Math.round(s.ctx) + '%';
+    ctxEl.id = 'dctx-' + s.pane_id;
+    const stEl = document.getElementById('dst-' + s.pane_id);
+    if (stEl && stEl.parentNode) stEl.parentNode.insertBefore(ctxEl, stEl.nextSibling);
+  }
   // Persona badge in Desktop window header
   if (s.persona) {
     const badge = document.createElement('span');
@@ -3189,16 +3288,23 @@ dtCreateWin = function(s) {
   }
   const hbtn = document.createElement('button');
   hbtn.className = 'handoff-btn';
-  hbtn.textContent = '↗ Handoff';
+  hbtn.textContent = '\u2197 Handoff';
   hbtn.title = 'Handoff';
   hbtn.onclick = (e) => { e.stopPropagation(); openHandoffDropdown(s.pane_id, hbtn); };
   hdr.appendChild(hbtn);
   const histBtn = document.createElement('button');
   histBtn.className = 'handoff-history-btn';
-  histBtn.textContent = '📜';
+  histBtn.textContent = '\uD83D\uDCDC';
   histBtn.title = 'Handoff history';
   histBtn.onclick = (e) => { e.stopPropagation(); openHandoffHistory(s.pane_id); };
   hdr.appendChild(histBtn);
+  // Auto-handoff button in Desktop window header
+  const ahBtn = document.createElement('button');
+  ahBtn.className = 'auto-handoff-btn';
+  ahBtn.innerHTML = '&#128260;';
+  ahBtn.title = 'Handoff & Clear';
+  ahBtn.onclick = (e) => { e.stopPropagation(); openAutoHandoffModal(s.pane_id); };
+  hdr.appendChild(ahBtn);
 };
 
 // Re-render sidebar shortly after load so extras appear
@@ -3486,6 +3592,160 @@ setTimeout(redrawA2AArrowsSoon, 800);
     }
   };
 })();
+
+// ─── v2.6 Auto-handoff helpers ───
+const LS_AUTO_HANDOFF_MODE = 'theorchestra:auto-handoff-mode:v1';
+const autoHandoffSuppressed = new Map(); // paneId -> suppressUntil timestamp
+let _autoHandoffCountdownTimer = null;
+
+function getAutoHandoffMode() {
+  return lsGet(LS_AUTO_HANDOFF_MODE, 'off');
+}
+
+function cycleAutoHandoff() {
+  const modes = ['off', 'suggest', 'enforce'];
+  const current = getAutoHandoffMode();
+  const next = modes[(modes.indexOf(current) + 1) % modes.length];
+  lsSet(LS_AUTO_HANDOFF_MODE, next);
+  renderAutoHandoffToggle();
+}
+
+function renderAutoHandoffToggle() {
+  const el = document.getElementById('autoHandoffToggle');
+  if (!el) return;
+  const mode = getAutoHandoffMode();
+  el.textContent = '\uD83E\uDD16 ' + mode;
+  el.className = 'topbar-toggle' + (mode === 'suggest' ? ' mode-suggest' : mode === 'enforce' ? ' mode-enforce' : '');
+}
+renderAutoHandoffToggle();
+
+function suppressAutoHandoff(paneId, ms) {
+  autoHandoffSuppressed.set(paneId, Date.now() + (ms || 15 * 60 * 1000));
+}
+
+function isAutoHandoffSuppressed(paneId) {
+  const until = autoHandoffSuppressed.get(paneId);
+  if (!until) return false;
+  if (Date.now() > until) { autoHandoffSuppressed.delete(paneId); return false; }
+  return true;
+}
+
+async function triggerAutoHandoff(paneId, focus, force) {
+  const body = {};
+  if (focus) body.focus = focus;
+  if (force) body.force = true;
+  pushToast({ kind: 'info', title: 'Starting handoff for pane-' + paneId + '...', body: 'This may take up to 90s', ttl: 10000 });
+  try {
+    const r = await fetch(API + '/api/panes/' + paneId + '/auto-handoff', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    if (d.ok) {
+      pushToast({ kind: 'success', title: 'Handoff complete', body: 'File: ' + esc(d.handoff_file || '') + ' \u00B7 pane cleared', ttl: 8000 });
+    } else if (r.status === 409) {
+      pushToast({ kind: 'info', title: 'Handoff declined', body: esc(d.reason || d.error || ''), ttl: 8000 });
+    } else {
+      pushToast({ kind: 'info', title: 'Handoff issue', body: esc(d.error || 'unknown'), ttl: 8000 });
+    }
+  } catch (e) {
+    pushToast({ kind: 'info', title: 'Handoff error', body: esc(e.message || '') });
+  }
+}
+
+function openAutoHandoffModal(paneId) {
+  const s = sessions.find(x => x.pane_id === paneId);
+  const ctxDisplay = s && s.ctx != null ? Math.round(s.ctx) + '%' : '?';
+  openModal({
+    title: 'Handoff & Clear pane-' + paneId,
+    bodyHtml:
+      '<div style="text-align:center;margin-bottom:12px">' +
+        '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px">Current Ctx</div>' +
+        '<div style="font-size:24px;font-weight:700;color:var(--accent)">' + ctxDisplay + '</div>' +
+      '</div>' +
+      '<textarea id="ahFocus" placeholder="Focus (optional): what should the handoff prioritize?" style="width:100%;height:60px;resize:vertical;font-family:inherit;font-size:12px;background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:6px;padding:8px;margin-bottom:8px"></textarea>' +
+      '<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary);cursor:pointer">' +
+        '<input type="checkbox" id="ahForce"> Force (skip readiness check)' +
+      '</label>',
+    footer:
+      '<button class="btn btn-ghost" onclick="closeModal()">Cancel</button>' +
+      '<button class="btn btn-accent" onclick="submitAutoHandoff(' + paneId + ')">Do it</button>'
+  });
+}
+
+function submitAutoHandoff(paneId) {
+  const focus = (document.getElementById('ahFocus') || {}).value || '';
+  const force = (document.getElementById('ahForce') || {}).checked || false;
+  closeModal();
+  triggerAutoHandoff(paneId, focus || undefined, force || undefined);
+}
+
+function handleAutoHandoffSuggest(ev) {
+  const mode = getAutoHandoffMode();
+  if (mode === 'off') return;
+  const paneId = ev.pane_id;
+  if (isAutoHandoffSuppressed(paneId)) return;
+  pushToast({
+    kind: 'info',
+    title: 'Plan handoff for pane-' + paneId + '?',
+    body: 'Ctx at ' + (ev.ctx || '?') + '%. ' + esc(ev.project || ''),
+    actions: [
+      { label: 'Do now', onclick: function() { triggerAutoHandoff(paneId); } },
+      { label: 'Skip 15m', onclick: function() { suppressAutoHandoff(paneId, 15 * 60 * 1000); } }
+    ],
+    ttl: 15000
+  });
+}
+
+function handleAutoHandoffUrgent(ev) {
+  const mode = getAutoHandoffMode();
+  if (mode !== 'enforce') return;
+  const paneId = ev.pane_id;
+  if (isAutoHandoffSuppressed(paneId)) return;
+  showAutoHandoffCountdown(paneId, ev.ctx, ev.cancel_token);
+}
+
+function showAutoHandoffCountdown(paneId, ctx, cancelToken) {
+  // Remove any existing countdown overlay
+  const existing = document.getElementById('autoHandoffOverlay');
+  if (existing) existing.remove();
+  if (_autoHandoffCountdownTimer) { clearInterval(_autoHandoffCountdownTimer); _autoHandoffCountdownTimer = null; }
+
+  let remaining = 10;
+  let cancelled = false;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'autoHandoffOverlay';
+  overlay.className = 'auto-handoff-overlay';
+  overlay.innerHTML =
+    '<div class="ahc-title">Auto-handoff in <span id="ahcSecs">' + remaining + '</span>s &mdash; pane-' + paneId + ' at ' + (ctx || '?') + '% Ctx</div>' +
+    '<div class="ahc-sub">Even if you don\'t cancel, the pane will confirm readiness first.</div>' +
+    '<div class="ahc-timer" id="ahcTimer">' + remaining + '</div>' +
+    '<button class="ahc-cancel" id="ahcCancel">Cancel</button>';
+  document.body.appendChild(overlay);
+
+  document.getElementById('ahcCancel').onclick = function() {
+    cancelled = true;
+    suppressAutoHandoff(paneId, 15 * 60 * 1000);
+    if (_autoHandoffCountdownTimer) { clearInterval(_autoHandoffCountdownTimer); _autoHandoffCountdownTimer = null; }
+    overlay.remove();
+    pushToast({ kind: 'info', title: 'Auto-handoff cancelled', body: 'Suppressed for 15 min' });
+  };
+
+  _autoHandoffCountdownTimer = setInterval(function() {
+    if (cancelled) return;
+    remaining--;
+    const secsEl = document.getElementById('ahcSecs');
+    const timerEl = document.getElementById('ahcTimer');
+    if (secsEl) secsEl.textContent = remaining;
+    if (timerEl) timerEl.textContent = remaining;
+    if (remaining <= 0) {
+      clearInterval(_autoHandoffCountdownTimer);
+      _autoHandoffCountdownTimer = null;
+      overlay.remove();
+      triggerAutoHandoff(paneId);
+    }
+  }, 1000);
+}
 
 </script>
 </body>

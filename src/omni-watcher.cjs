@@ -328,20 +328,8 @@ function pollWezterm() {
 // --- Token/cost tracking ---
 const sessionMetrics = new Map(); // pane_id -> { ctx, session, weekly, model }
 
-function parseStatusBar(lines) {
-  const text = lines.join('\n');
-  const ctx = text.match(/Ctx:\s*([\d.]+)%/);
-  const session = text.match(/Session:\s*([\d.]+)%/);
-  const weekly = text.match(/Weekly:\s*([\d.]+)%/);
-  const model = text.match(/Model:\s*([^\s]+)/);
-  if (!ctx && !session && !weekly) return null;
-  return {
-    ctx: ctx ? parseFloat(ctx[1]) : null,
-    session: session ? parseFloat(session[1]) : null,
-    weekly: weekly ? parseFloat(weekly[1]) : null,
-    model: model ? model[1] : 'unknown',
-  };
-}
+// parseStatusBar moved to src/status-parser.cjs so pane-discovery.cjs can share it.
+const { parseStatusBar } = require('./status-parser.cjs');
 
 // Emit metrics summary every 10 min
 setInterval(() => {

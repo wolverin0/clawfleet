@@ -82,6 +82,10 @@ function collectPanes() {
     confidence: p.confidence ?? 0,
     last_line: p.lastLines ?? '',
     persona: p.persona ?? null,
+    ctx: typeof p.ctx === 'number' ? p.ctx : null,
+    session_pct: typeof p.sessionPct === 'number' ? p.sessionPct : null,
+    weekly_pct: typeof p.weeklyPct === 'number' ? p.weeklyPct : null,
+    model: p.model ?? null,
   }));
 }
 
@@ -179,6 +183,10 @@ const a2aState = new Map();
 const A2A_MAX = 500;
 const A2A_TTL_MS = 24 * 3600 * 1000;
 const A2A_ENVELOPE_RE = /\[A2A from pane-(\d+) to pane-(\d+) \| corr=([^\s|]+) \| type=(\w+)/g;
+
+// --- Auto-handoff registry (v2.6) ---
+// Map<corr, {corr, paneId, file, createdAt, readinessReason, status}>
+const handoffRegistry = new Map();
 
 // --- Worktree registry (Phase 3 — Agency Mode) ---
 // Map<paneId, {persona, worktreePath, branchName, baseCwd}>
@@ -682,6 +690,106 @@ async function handlePostKill(res, paneId) {
     }
     sendJson(res, 200, { ok: true, pane_id: paneId, worktree_cleaned: !!wt });
   } catch (err) {
+    sendJson(res, 500, { error: err.message });
+  }
+}
+
+// --- auto-handoff endpoint (v2.6) ---
+
+async function handlePostAutoHandoff(req, res, paneId) {
+  try {
+    const panes = collectPanes();
+    const pane = panes.find(p => p.pane_id === paneId);
+    if (!pane) return sendJson(res, 404, { error: 'pane not found' });
+
+    if (pane.status === 'working') return sendJson(res, 409, { error: 'pane is working, retry when idle' });
+
+    const body = await parseBody(req);
+    const focus = body.focus || '';
+    const force = !!body.force;
+    let readinessResult = null;
+
+    // PRE-HANDOFF READINESS CHECK (skip if force)
+    if (!force) {
+      const ctxPct = pane.ctx || 'unknown';
+      const checkPrompt = `[AUTO-HANDOFF READINESS CHECK] The dashboard is considering a session reset because Ctx is at ${ctxPct}%. Are you at a natural break point where a handoff WOULD NOT lose mid-task context?\n\nReply in exactly this format:\n  READY: <1-line reason>\n  — or —\n  NOT_READY: <what you'd need to finish first>\n\nNothing else.`;
+      wez.sendText(paneId, checkPrompt);
+      wez.sendTextNoEnter(paneId, '\r');
+
+      for (let i = 0; i < 15; i++) {
+        await sleep(2000);
+        try {
+          const text = wez.getFullText(paneId, 20) || '';
+          const match = text.match(/^(READY|NOT_READY):\s*(.+)$/m);
+          if (match) { readinessResult = { status: match[1], reason: match[2].trim() }; break; }
+        } catch { /* pane may be transitioning */ }
+      }
+
+      if (!readinessResult) return sendJson(res, 504, { error: 'readiness check timed out' });
+      if (readinessResult.status === 'NOT_READY') {
+        return sendJson(res, 409, {
+          error: 'pane declined handoff',
+          reason: readinessResult.reason,
+          retry_hint: 'wait for pane to finish, or pass force:true',
+        });
+      }
+      // READY: proceed
+    }
+
+    const corrShort = Math.random().toString(36).slice(2, 8);
+    const corr = 'handoff-' + corrShort;
+    const filename = 'handoff-' + isoForFilename() + '-' + corrShort + '.md';
+
+    const instruction = `Use the /handoff skill to write a comprehensive session handoff to handoffs/${filename}. Corr: ${corr}. Focus: ${focus || 'general checkpoint'}. Include sections: Context, Current State, Open Threads, Next Steps, Constraints & Gotchas, Relevant Files. Do NOT include credentials, API keys, tokens, or private paths. Write the file, then stop.`;
+    wez.sendText(paneId, instruction);
+    wez.sendTextNoEnter(paneId, '\r');
+
+    // Poll for file existence
+    const paneCwd = (pane.project || '').replace(/^\//, '');
+    const handoffsDir = path.join(paneCwd, 'handoffs');
+    const filePath = path.join(handoffsDir, filename);
+    let fileFound = false;
+    for (let i = 0; i < 45; i++) {
+      await sleep(2000);
+      try {
+        if (fs.existsSync(filePath) && fs.statSync(filePath).size > 200) {
+          fileFound = true; break;
+        }
+      } catch { /* file not ready yet */ }
+    }
+    if (!fileFound) return sendJson(res, 504, { error: 'handoff generation timed out', partial: true });
+
+    // Verify file has required sections
+    const content = fs.readFileSync(filePath, 'utf8').slice(0, 4000);
+    const sectionCount = ['## Current State', '## Next Steps', '## Open Threads', '## Context']
+      .filter(h => content.includes(h)).length;
+    if (sectionCount < 2) {
+      return sendJson(res, 500, { error: 'handoff file incomplete', file: 'handoffs/' + filename, sections_found: sectionCount });
+    }
+
+    // /clear the session
+    wez.sendText(paneId, '/clear');
+    wez.sendTextNoEnter(paneId, '\r');
+    await sleep(3000);
+
+    // Inject continuation
+    wez.sendText(paneId, `Continue your work from the handoff file at handoffs/${filename}. Read it FIRST, then proceed with your next step.`);
+    wez.sendTextNoEnter(paneId, '\r');
+
+    // Track
+    handoffRegistry.set(corr, {
+      corr, paneId, file: 'handoffs/' + filename,
+      createdAt: Date.now(), readinessReason: force ? 'forced' : (readinessResult?.reason || 'unknown'),
+      status: 'completed',
+    });
+
+    sendJson(res, 200, {
+      ok: true, corr, handoff_file: 'handoffs/' + filename,
+      session_cleared: true,
+      readiness_reason: force ? 'forced' : (readinessResult?.reason || 'unknown'),
+    });
+  } catch (err) {
+    log(`POST /api/sessions/${paneId}/auto-handoff error: ${err.message}`);
     sendJson(res, 500, { error: err.message });
   }
 }
@@ -1335,6 +1443,8 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/agency/prds' && method === 'GET') return handleGetPRDs(req, res);
   if (pathname === '/api/agency/teams' && method === 'GET') return handleGetTeams(req, res);
   if (pathname === '/api/agency/bootstrap' && method === 'POST') return handlePostBootstrap(req, res);
+  if (pathname === '/api/auto-handoff/pending' && method === 'GET') return handleGetAutoHandoffPending(req, res);
+  if (pathname === '/api/auto-handoff/suppress' && method === 'POST') return handlePostAutoHandoffSuppress(req, res);
   if (pathname === '/api/tasks' && method === 'GET') return handleGetTasks(res);
   if (pathname === '/api/events' && method === 'GET') return handleEvents(req, res);
   if (pathname === '/api/spawn' && method === 'POST') return handlePostSpawn(req, res);
@@ -1347,7 +1457,7 @@ const server = http.createServer(async (req, res) => {
     if (wtMatch[2] === 'merge') return handlePostWorktreeMerge(req, res, wtPaneId);
   }
 
-  const paneMatch = pathname.match(/^\/api\/(panes|sessions)\/(\d+)(\/(output|prompt|key|kill|queue|inject-context))?$/);
+  const paneMatch = pathname.match(/^\/api\/(panes|sessions)\/(\d+)(\/(output|prompt|key|kill|queue|inject-context|auto-handoff))?$/);
   if (paneMatch) {
     const paneId = parseInt(paneMatch[2], 10);
     const sub = paneMatch[4];
@@ -1358,6 +1468,7 @@ const server = http.createServer(async (req, res) => {
     if (sub === 'prompt' && method === 'POST') return handlePostPrompt(req, res, paneId);
     if (sub === 'key' && method === 'POST')    return handlePostKey(req, res, paneId);
     if (sub === 'kill' && method === 'POST')   return handlePostKill(res, paneId);
+    if (sub === 'auto-handoff' && method === 'POST') return handlePostAutoHandoff(req, res, paneId);
     // Graceful noops: v3.1 UI calls these; current backend doesn't support queue/inject yet.
     if ((sub === 'queue' || sub === 'inject-context') && method === 'POST') {
       return sendJson(res, 200, { ok: true, note: `${sub} not implemented yet — noop` });
@@ -1377,6 +1488,68 @@ const server = http.createServer(async (req, res) => {
 
   sendJson(res, 404, { error: 'not found' });
 });
+
+// --- v2.6 Auto-handoff monitor daemon ---
+const AUTO_HANDOFF_SUGGEST = parseInt(process.env.AUTO_HANDOFF_SUGGEST_THRESHOLD || '30', 10);
+const AUTO_HANDOFF_URGENT = parseInt(process.env.AUTO_HANDOFF_URGENT_THRESHOLD || '50', 10);
+const AUTO_HANDOFF_COOLDOWN = parseInt(process.env.AUTO_HANDOFF_COOLDOWN_MS || String(15 * 60 * 1000), 10);
+
+const autoHandoffSuggested = new Map(); // paneId -> lastSuggestedAt
+const pendingAutoHandoffEvents = [];
+
+setInterval(() => {
+  try {
+    const panes = collectPanes();
+    for (const p of panes) {
+      if (!p.is_claude) continue;
+      if (p.ctx == null || p.ctx < AUTO_HANDOFF_SUGGEST) continue;
+      if (p.status === 'working') continue;
+
+      // Cooldown check
+      const lastSuggested = autoHandoffSuggested.get(p.pane_id) || 0;
+      if (Date.now() - lastSuggested < AUTO_HANDOFF_COOLDOWN) continue;
+
+      // Determine event type
+      const eventType = p.ctx >= AUTO_HANDOFF_URGENT ? 'autoHandoffUrgent' : 'autoHandoffSuggest';
+      const cancelToken = Math.random().toString(36).slice(2, 10);
+      const event = {
+        type: eventType,
+        event: eventType,
+        timestamp: new Date().toISOString(),
+        pane_id: p.pane_id,
+        project: p.project_name,
+        ctx: p.ctx,
+        cancel_token: cancelToken,
+      };
+
+      log(`[auto-handoff] ${eventType}: pane-${p.pane_id} (${p.project_name}) at ${p.ctx}% Ctx`);
+
+      pendingAutoHandoffEvents.push(event);
+      if (pendingAutoHandoffEvents.length > 20) pendingAutoHandoffEvents.shift();
+
+      autoHandoffSuggested.set(p.pane_id, Date.now());
+    }
+  } catch (e) { log(`[auto-handoff] monitor error: ${e.message}`); }
+}, 10000);
+
+async function handleGetAutoHandoffPending(req, res) {
+  sendJson(res, 200, { events: pendingAutoHandoffEvents });
+}
+
+async function handlePostAutoHandoffSuppress(req, res) {
+  try {
+    const body = await parseBody(req);
+    const paneId = parseInt(body.pane_id, 10);
+    if (!Number.isFinite(paneId)) return sendJson(res, 400, { error: 'pane_id must be an integer' });
+    const durationMs = parseInt(body.duration_ms, 10) || AUTO_HANDOFF_COOLDOWN;
+    // Extend cooldown by setting lastSuggested to now + (duration - cooldown), so
+    // the next eligibility window is now + durationMs.
+    autoHandoffSuggested.set(paneId, Date.now() - AUTO_HANDOFF_COOLDOWN + durationMs);
+    sendJson(res, 200, { ok: true, pane_id: paneId, suppressed_until: new Date(Date.now() + durationMs).toISOString() });
+  } catch (err) {
+    sendJson(res, 500, { error: err.message });
+  }
+}
 
 // Log allowed origins on boot so the user sees what LAN addresses work.
 log(`allowed origins (CSRF): ${Array.from(ALLOWED_ORIGINS).join(', ')}`);

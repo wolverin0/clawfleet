@@ -295,6 +295,19 @@ const TOOLS = [
       required: ['workspace'],
     },
   },
+  {
+    name: 'auto_handoff',
+    description: 'Trigger an intelligent auto-handoff on a pane: readiness check -> handoff file -> /clear -> continuation inject. The pane will self-report if it is ready (READY/NOT_READY). Use focus to guide what the handoff should prioritize.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pane_id: { type: 'number', description: 'Target pane ID' },
+        focus: { type: 'string', description: 'Optional: what should the handoff prioritize?' },
+        force: { type: 'boolean', description: 'Skip readiness check (use when you know the pane is at a break point)' },
+      },
+      required: ['pane_id'],
+    },
+  },
 ];
 
 // ─── Tool Implementations ─────────────────────────────────────────────────
@@ -773,6 +786,47 @@ function handleToolCall(name, args) {
       }
     }
 
+    case 'auto_handoff': {
+      const dashPort = parseInt(process.env.DASHBOARD_PORT || '4200', 10);
+      const reqBody = JSON.stringify({ focus: args.focus || '', force: !!args.force });
+      return new Promise((resolve) => {
+        const http = require('http');
+        const req = http.request({
+          host: 'localhost',
+          port: dashPort,
+          method: 'POST',
+          path: `/api/panes/${args.pane_id}/auto-handoff`,
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(reqBody) },
+        }, (res) => {
+          let chunks = '';
+          res.on('data', c => { chunks += c; });
+          res.on('end', () => {
+            let parsed;
+            try { parsed = JSON.parse(chunks); } catch { parsed = { raw: chunks }; }
+            resolve({
+              content: [{ type: 'text', text: JSON.stringify(parsed, null, 2) }],
+              isError: res.statusCode >= 400,
+            });
+          });
+        });
+        req.on('error', (err) => {
+          resolve({
+            content: [{ type: 'text', text: `Error contacting dashboard at localhost:${dashPort}: ${err.message}` }],
+            isError: true,
+          });
+        });
+        req.setTimeout(120000, () => {
+          req.destroy();
+          resolve({
+            content: [{ type: 'text', text: 'auto_handoff timed out after 120s' }],
+            isError: true,
+          });
+        });
+        req.write(reqBody);
+        req.end();
+      });
+    }
+
     default:
       return {
         content: [{ type: 'text', text: `Unknown tool: ${name}` }],
@@ -819,6 +873,20 @@ function handleMessage(msg) {
       log(`Tool call: ${name}`);
       try {
         const result = handleToolCall(name, toolArgs || {});
+        // Support async tool handlers (e.g. auto_handoff) — write response when resolved
+        if (result && typeof result.then === 'function') {
+          result.then(
+            (resolved) => process.stdout.write(jsonRpcResponse(id, resolved) + '\n'),
+            (err) => {
+              log(`Tool async error: ${err.message}`);
+              process.stdout.write(jsonRpcResponse(id, {
+                content: [{ type: 'text', text: `Internal error: ${err.message}` }],
+                isError: true,
+              }) + '\n');
+            }
+          );
+          return null; // signal: response will be written async
+        }
         return jsonRpcResponse(id, result);
       } catch (err) {
         log(`Tool error: ${err.message}`);

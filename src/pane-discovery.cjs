@@ -9,6 +9,7 @@
  * across all your projects without you having to register them manually.
  */
 const wez = require('./wezterm.cjs');
+const { parseStatusBar } = require('./status-parser.cjs');
 
 // Patterns that indicate a pane is running Claude Code
 const CLAUDE_INDICATORS = [
@@ -116,7 +117,7 @@ function discoverPanes() {
       discovered.push({
         paneId, isClaude: false, status: 'error', project: null,
         projectName: null, title, workspace, lastLines: '', confidence: 0,
-        persona: null,
+        persona: null, ctx: null, sessionPct: null, weeklyPct: null, model: null,
       });
       continue;
     }
@@ -170,9 +171,19 @@ function discoverPanes() {
       if (sysPromptMatch) persona = sysPromptMatch[1];
     }
 
+    // v2.6: parse status bar for Ctx% / Session% / Weekly% / model.
+    // Uses the last 30 lines to capture the status bar if present.
+    const statusLines = text.split('\n').slice(-30);
+    const metrics = parseStatusBar(statusLines) || {};
+    const ctx = typeof metrics.ctx === 'number' ? metrics.ctx : null;
+    const sessionPct = typeof metrics.session === 'number' ? metrics.session : null;
+    const weeklyPct = typeof metrics.weekly === 'number' ? metrics.weekly : null;
+    const model = metrics.model || null;
+
     discovered.push({
       paneId, isClaude, status, project, projectName,
       title, workspace, lastLines, confidence, rawText: text, persona,
+      ctx, sessionPct, weeklyPct, model,
     });
   }
 

@@ -148,6 +148,13 @@ function classifyAction(action, config) {
       }
       return { safe: false, reason: 'fire_routine triggers a remote Claude session — requires user approval' };
 
+    case 'spawn_team':
+      // PRD-driven team bootstrap — always escalates (spawns multiple agents + consumes tokens)
+      if (!action.prd || !String(action.prd).trim()) {
+        return { safe: false, reason: 'spawn_team requires prd name' };
+      }
+      return { safe: false, reason: 'spawn_team bootstraps a multi-agent team — requires user approval' };
+
     default:
       return { safe: false, reason: `unknown action type: ${action.type}` };
   }
@@ -391,6 +398,48 @@ function execFireRoutine(action) {
   });
 }
 
+// ─── Spawn a team via the local /api/agency/bootstrap endpoint ──────────────
+
+function execSpawnTeam(action) {
+  return new Promise((resolve, reject) => {
+    if (!action.prd) return reject(new Error('spawn_team requires prd'));
+    const port = parseInt(process.env.DASHBOARD_PORT || '4200', 10);
+    const body = JSON.stringify({
+      prd: String(action.prd),
+      ...(action.cwd ? { cwd: String(action.cwd) } : {}),
+    });
+    const req = http.request({
+      hostname: '127.0.0.1',
+      port,
+      path: '/api/agency/bootstrap',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+      },
+      timeout: 120 * 1000,
+    }, (res) => {
+      let buf = '';
+      res.on('data', d => { buf += d; });
+      res.on('end', () => {
+        let parsed = null;
+        try { parsed = JSON.parse(buf); } catch { /* non-JSON */ }
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          log('info', `spawn_team → ${action.prd} ok (status ${res.statusCode})`);
+          resolve(parsed || { ok: true });
+        } else {
+          log('error', `spawn_team → ${action.prd} failed ${res.statusCode}: ${buf.slice(0, 200)}`);
+          reject(new Error(`agency bootstrap failed: ${res.statusCode}`));
+        }
+      });
+    });
+    req.on('error', err => reject(err));
+    req.on('timeout', () => { req.destroy(new Error('agency bootstrap timeout')); });
+    req.write(body);
+    req.end();
+  });
+}
+
 // ─── Main dispatcher ─────────────────────────────────────────────────────────
 
 /**
@@ -501,6 +550,12 @@ async function applyResolution(escalation, resolution) {
             .catch(err => log('error', `approved fire_routine failed: ${err.message}`));
           return 'approved_executed';
         }
+        case 'spawn_team': {
+          // POST to /api/agency/bootstrap via local http request
+          execSpawnTeam(proposed)
+            .catch(err => log('error', `approved spawn_team failed: ${err.message}`));
+          return 'approved_executed';
+        }
         case 'mission_complete':
           execMissionComplete(proposed);
           return 'approved_executed';
@@ -546,6 +601,7 @@ module.exports = {
   execContinue,
   execSendKey,
   execFireRoutine,
+  execSpawnTeam,
   // Exposed for tests
   _internals: { cooldowns, loopHistory, inCooldown, isLoop },
 };

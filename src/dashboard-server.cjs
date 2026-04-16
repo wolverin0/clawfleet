@@ -184,6 +184,179 @@ const A2A_ENVELOPE_RE = /\[A2A from pane-(\d+) to pane-(\d+) \| corr=([^\s|]+) \
 // Map<paneId, {persona, worktreePath, branchName, baseCwd}>
 const worktreeRegistry = new Map();
 
+// --- Teams registry (Phase 4 — PRD-driven bootstrap) ---
+// Map<teamName, {prd, createdAt, cwd, roles: [{paneId, persona, worktree, branch, task, status}]}>
+const teamsRegistry = new Map();
+
+// --- PRD directory ---
+const PRD_DIR = path.join(__dirname, '..', 'docs', 'prd');
+
+/**
+ * Parse a PRD markdown file with YAML frontmatter.
+ * Returns {name, roles: [{persona, permission_mode, worktree, task}], scope, deadline, body}
+ * or null if parsing fails.
+ *
+ * Uses a simple line-by-line YAML parser (no library).
+ */
+function parsePRD(filePath) {
+  let raw;
+  try { raw = fs.readFileSync(filePath, 'utf8'); } catch { return null; }
+  const fmMatch = raw.match(/^---\s*\r?\n([\s\S]*?)\r?\n---/);
+  if (!fmMatch) return null;
+  const fmBlock = fmMatch[1];
+  const body = raw.slice(fmMatch[0].length).trim();
+  const lines = fmBlock.split(/\r?\n/);
+
+  const result = { name: null, roles: [], scope: null, deadline: null, body };
+  let inRoles = false;
+  let currentRole = null;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Start of roles array (check BEFORE top-level scalar so "roles:" isn't consumed as a scalar)
+    if (/^roles:\s*$/.test(line)) {
+      inRoles = true;
+      continue;
+    }
+
+    // Detect top-level scalar keys (no leading whitespace)
+    const topMatch = line.match(/^(\w[\w_-]*):\s*"?([^"]*)"?\s*$/);
+    if (topMatch && !inRoles) {
+      const key = topMatch[1];
+      const val = topMatch[2].trim();
+      if (key === 'name') result.name = val || null;
+      else if (key === 'scope') result.scope = val || null;
+      else if (key === 'deadline') result.deadline = val || null;
+      else if (key === 'prd') { /* skip boolean marker */ }
+      continue;
+    }
+
+    // A new role item (  - persona: xxx)
+    const roleItemMatch = line.match(/^\s+-\s+(\w[\w_-]*):\s*"?([^"]*)"?\s*$/);
+    if (roleItemMatch && inRoles) {
+      // Flush previous role
+      if (currentRole && currentRole.persona && currentRole.task) {
+        result.roles.push(Object.assign({}, currentRole));
+      }
+      currentRole = { persona: null, permission_mode: null, worktree: false, task: null };
+      const key = roleItemMatch[1];
+      const val = roleItemMatch[2].trim();
+      if (key === 'persona') currentRole.persona = val;
+      else if (key === 'permission_mode') currentRole.permission_mode = val;
+      else if (key === 'worktree') currentRole.worktree = val === 'true';
+      else if (key === 'task') currentRole.task = val;
+      continue;
+    }
+
+    // Continuation key inside a role (    key: val)
+    const roleKeyMatch = line.match(/^\s{4,}(\w[\w_-]*):\s*"?([^"]*)"?\s*$/);
+    if (roleKeyMatch && inRoles && currentRole) {
+      const key = roleKeyMatch[1];
+      const val = roleKeyMatch[2].trim();
+      if (key === 'persona') currentRole.persona = val;
+      else if (key === 'permission_mode') currentRole.permission_mode = val;
+      else if (key === 'worktree') currentRole.worktree = val === 'true';
+      else if (key === 'task') currentRole.task = val;
+      continue;
+    }
+
+    // A top-level key after roles ended (no indentation = roles block is over)
+    if (inRoles && /^\w/.test(line)) {
+      inRoles = false;
+      // Flush last role
+      if (currentRole && currentRole.persona && currentRole.task) {
+        result.roles.push(Object.assign({}, currentRole));
+      }
+      currentRole = null;
+      // Re-process line as top-level
+      const reMatch = line.match(/^(\w[\w_-]*):\s*"?([^"]*)"?\s*$/);
+      if (reMatch) {
+        if (reMatch[1] === 'scope') result.scope = reMatch[2].trim() || null;
+        else if (reMatch[1] === 'deadline') result.deadline = reMatch[2].trim() || null;
+      }
+    }
+  }
+
+  // Flush final role if still pending
+  if (currentRole && currentRole.persona && currentRole.task) {
+    result.roles.push(Object.assign({}, currentRole));
+  }
+
+  if (!result.name || result.roles.length === 0) return null;
+  return result;
+}
+
+/**
+ * Shared helper to spawn a single agent pane.
+ * Follows v2.5 constraint (claim 9708): shell first -> wait 2s -> sendText claude command
+ * -> NO --continue when persona set -> setTabTitle.
+ *
+ * Returns {paneId, worktreeInfo} or throws.
+ */
+async function spawnAgentPane({ cwd, persona, permission_mode, worktree }) {
+  const spawnCwd = String(cwd);
+  let worktreeInfo = null;
+  let effectiveCwd = spawnCwd;
+
+  // Worktree creation if requested
+  if (worktree === true) {
+    try {
+      execSync(`git -C "${spawnCwd.replace(/\\/g, '/')}" rev-parse --git-dir`, { timeout: 15000, encoding: 'utf8' });
+    } catch {
+      throw new Error('not a git repo -- cannot create worktree');
+    }
+    const shortId = Math.random().toString(36).slice(2, 8).padEnd(6, '0').slice(0, 6);
+    const agentSlug = persona || 'agent';
+    const branchName = `claude/agency-${agentSlug}-${shortId}`;
+    const worktreePath = path.join(spawnCwd, '.worktrees', `${agentSlug}-${shortId}`).replace(/\\/g, '/');
+    execSync(`git -C "${spawnCwd.replace(/\\/g, '/')}" worktree add "${worktreePath}" -b "${branchName}"`, { timeout: 15000, encoding: 'utf8' });
+    effectiveCwd = worktreePath;
+    worktreeInfo = { path: worktreePath, branch: branchName, baseCwd: spawnCwd };
+  }
+
+  // Spawn shell pane first (no program)
+  const paneId = wez.spawnPane({ cwd: effectiveCwd });
+
+  // Wait for shell to initialize
+  await new Promise(r => setTimeout(r, 2000));
+
+  // Build claude command
+  const validModes = ['default', 'plan', 'acceptEdits', 'bypassPermissions'];
+  let claudeCmd = 'claude';
+  if (persona) {
+    const personaPath = resolvePersona(persona);
+    if (personaPath) {
+      claudeCmd += ' --append-system-prompt-file "' + personaPath.replace(/\\/g, '/') + '"';
+    }
+    // Fresh start when persona set (no --continue)
+  } else {
+    claudeCmd += ' --continue';
+  }
+  claudeCmd += ' --dangerously-skip-permissions';
+  if (permission_mode && validModes.includes(permission_mode)) {
+    claudeCmd += ' --permission-mode ' + permission_mode;
+  }
+  wez.sendText(paneId, claudeCmd);
+
+  // Set tab title for persona detection
+  if (persona) {
+    try { wez.setTabTitle(paneId, `[${persona}]`); } catch { /* best effort */ }
+  }
+
+  // Register worktree
+  if (worktreeInfo) {
+    worktreeRegistry.set(paneId, {
+      persona: persona || 'agent',
+      worktreePath: worktreeInfo.path,
+      branchName: worktreeInfo.branch,
+      baseCwd: worktreeInfo.baseCwd,
+    });
+  }
+
+  return { paneId, worktreeInfo };
+}
+
 function a2aEvict() {
   const now = Date.now();
   for (const [corr, info] of a2aState) {
@@ -617,91 +790,35 @@ async function handleGetPersonas(req, res) {
 async function handlePostSpawn(req, res) {
   try {
     const body = await parseBody(req);
-    let { cwd, program } = body;
+    const { cwd, program } = body;
     if (!cwd) return sendJson(res, 400, { error: 'missing `cwd` body field' });
 
-    // Build spawn args
-    const spawnArgs = Array.isArray(body.args) ? [...body.args] : [];
-
-    // Persona injection (v2.5)
-    let personaName = null;
+    // Validate persona if provided
     if (body.persona) {
       const personaPath = resolvePersona(body.persona);
       if (!personaPath) return sendJson(res, 400, { error: `persona "${body.persona}" not found in ${AGENTS_DIR}` });
-      spawnArgs.push('--append-system-prompt-file', personaPath);
-      personaName = body.persona;
     }
 
-    // Permission mode (v2.5)
-    const validModes = ['default', 'plan', 'acceptEdits', 'bypassPermissions'];
-    if (body.permission_mode && validModes.includes(body.permission_mode)) {
-      spawnArgs.push('--permission-mode', body.permission_mode);
-    }
-
-    // Worktree creation (v2.5 Phase 3)
-    let worktreeInfo = null;
-    if (body.worktree === true) {
+    // Use shared helper for persona/worktree/permission spawns
+    if (body.persona || body.permission_mode || body.worktree) {
       try {
-        execSync(`git -C "${cwd.replace(/\\/g, '/')}" rev-parse --git-dir`, { timeout: 15000, encoding: 'utf8' });
-      } catch {
-        return sendJson(res, 400, { error: 'not a git repo — cannot create worktree' });
+        const { paneId, worktreeInfo } = await spawnAgentPane({
+          cwd,
+          persona: body.persona || null,
+          permission_mode: body.permission_mode || null,
+          worktree: body.worktree || false,
+        });
+        const response = { ok: true, pane_id: paneId, persona: body.persona || null };
+        if (worktreeInfo) response.worktree = { path: worktreeInfo.path, branch: worktreeInfo.branch };
+        return sendJson(res, 200, response);
+      } catch (err) {
+        return sendJson(res, 500, { error: err.message });
       }
-      const shortId = Math.random().toString(36).slice(2, 8).padEnd(6, '0').slice(0, 6);
-      const agentSlug = personaName || 'agent';
-      const branchName = `claude/agency-${agentSlug}-${shortId}`;
-      const worktreePath = path.join(cwd, '.worktrees', `${agentSlug}-${shortId}`).replace(/\\/g, '/');
-      try {
-        execSync(`git -C "${cwd.replace(/\\/g, '/')}" worktree add "${worktreePath}" -b "${branchName}"`, { timeout: 15000, encoding: 'utf8' });
-      } catch (gitErr) {
-        return sendJson(res, 500, { error: `git worktree add failed: ${gitErr.message}` });
-      }
-      cwd = worktreePath;
-      worktreeInfo = { path: worktreePath, branch: branchName, baseCwd: body.cwd };
     }
 
-    // Spawn the shell pane first (no program — just a shell)
+    // Plain spawn (no persona, no worktree, no permission_mode) — original behavior
     const paneId = wez.spawnPane({ cwd, program, args: undefined });
-
-    // If persona or permission_mode requested, build and send the claude command
-    // into the new shell. This is the same pattern as spawn_session in mcp-server.cjs.
-    // When persona is set → fresh session (no --continue) so we don't resume an
-    // existing session. Without persona → --continue to resume as before.
-    if (personaName || body.permission_mode) {
-      // Wait for shell to initialize
-      await new Promise(r => setTimeout(r, 2000));
-      let claudeCmd = 'claude';
-      if (personaName) {
-        // Fresh start — persona is a NEW entity
-        const personaPath = resolvePersona(personaName);
-        claudeCmd += ' --append-system-prompt-file "' + personaPath.replace(/\\/g, '/') + '"';
-      } else {
-        claudeCmd += ' --continue';
-      }
-      claudeCmd += ' --dangerously-skip-permissions';
-      if (body.permission_mode && validModes.includes(body.permission_mode)) {
-        claudeCmd += ' --permission-mode ' + body.permission_mode;
-      }
-      wez.sendText(paneId, claudeCmd);
-    }
-
-    // If persona assigned, set tab title so discoverPanes() can detect it
-    if (personaName) {
-      try { wez.setTabTitle(paneId, `[${personaName}]`); } catch { /* best effort */ }
-    }
-
-    // Register worktree in the in-memory registry
-    if (worktreeInfo) {
-      worktreeRegistry.set(paneId, {
-        persona: personaName || 'agent',
-        worktreePath: worktreeInfo.path,
-        branchName: worktreeInfo.branch,
-        baseCwd: worktreeInfo.baseCwd,
-      });
-    }
-
-    const response = { ok: true, pane_id: paneId, persona: personaName || null };
-    if (worktreeInfo) response.worktree = { path: worktreeInfo.path, branch: worktreeInfo.branch };
-    sendJson(res, 200, response);
+    sendJson(res, 200, { ok: true, pane_id: paneId, persona: null });
   } catch (err) {
     sendJson(res, 500, { error: err.message });
   }
@@ -765,6 +882,171 @@ async function handlePostWorktreeMerge(req, res, paneId) {
       return sendJson(res, 500, { error: `merge failed: ${mergeErr.message}` });
     }
   } catch (err) {
+    sendJson(res, 500, { error: err.message });
+  }
+}
+
+// --- Agency Mode endpoints (Phase 4 — PRD-driven team bootstrap) ---
+
+async function handleGetPRDs(req, res) {
+  try {
+    if (!fs.existsSync(PRD_DIR)) return sendJson(res, 200, { prds: [] });
+    const files = fs.readdirSync(PRD_DIR).filter(f => f.endsWith('.md'));
+    const prds = [];
+    for (const f of files) {
+      const parsed = parsePRD(path.join(PRD_DIR, f));
+      if (!parsed) continue;
+      prds.push({
+        file: f,
+        slug: f.replace(/\.md$/, ''),
+        name: parsed.name,
+        roles_count: parsed.roles.length,
+        scope: parsed.scope,
+        deadline: parsed.deadline,
+      });
+    }
+    sendJson(res, 200, { prds });
+  } catch (err) {
+    sendJson(res, 500, { error: err.message });
+  }
+}
+
+async function handleGetTeams(req, res) {
+  try {
+    // Merge live pane status from discoverPanes
+    const livePanes = collectPanes();
+    const paneStatusMap = new Map();
+    for (const p of livePanes) {
+      paneStatusMap.set(p.pane_id, p.status || 'unknown');
+    }
+
+    const teams = [];
+    for (const [name, team] of teamsRegistry) {
+      const roles = team.roles.map(r => ({
+        pane_id: r.paneId,
+        persona: r.persona,
+        worktree: r.worktree || false,
+        branch: r.branch || null,
+        task: r.task,
+        status: paneStatusMap.get(r.paneId) || r.status || 'unknown',
+      }));
+      teams.push({
+        name,
+        prd: team.prd,
+        createdAt: team.createdAt,
+        cwd: team.cwd,
+        roles,
+      });
+    }
+    sendJson(res, 200, { teams });
+  } catch (err) {
+    sendJson(res, 500, { error: err.message });
+  }
+}
+
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+async function handlePostBootstrap(req, res) {
+  try {
+    const body = await parseBody(req);
+    const prdSlug = typeof body.prd === 'string' ? body.prd.trim() : '';
+    if (!prdSlug) return sendJson(res, 400, { error: 'missing `prd` field' });
+
+    const prdFile = path.join(PRD_DIR, prdSlug + '.md');
+    if (!fs.existsSync(prdFile)) {
+      return sendJson(res, 404, { error: `PRD file not found: docs/prd/${prdSlug}.md` });
+    }
+
+    const prd = parsePRD(prdFile);
+    if (!prd) {
+      return sendJson(res, 400, { error: `failed to parse PRD frontmatter in docs/prd/${prdSlug}.md` });
+    }
+
+    // Resolve cwd: body.cwd override, else dashboard's own cwd
+    const cwd = (body.cwd && typeof body.cwd === 'string') ? body.cwd : process.cwd();
+
+    const agents = [];
+    const teamRoles = [];
+
+    for (let i = 0; i < prd.roles.length; i++) {
+      const role = prd.roles[i];
+
+      // Rate limit: 3s between spawns (skip delay before first)
+      if (i > 0) await sleep(3000);
+
+      let paneId = null;
+      let wtInfo = null;
+      try {
+        const result = await spawnAgentPane({
+          cwd,
+          persona: role.persona,
+          permission_mode: role.permission_mode || null,
+          worktree: role.worktree || false,
+        });
+        paneId = result.paneId;
+        wtInfo = result.worktreeInfo;
+      } catch (spawnErr) {
+        log(`bootstrap spawn failed for role ${role.persona}: ${spawnErr.message}`);
+        agents.push({ persona: role.persona, error: spawnErr.message });
+        teamRoles.push({
+          paneId: null, persona: role.persona, worktree: role.worktree || false,
+          branch: null, task: role.task, status: 'spawn_failed',
+        });
+        continue;
+      }
+
+      // Wait for Claude to boot before sending task
+      await sleep(8000);
+
+      // Build A2A handoff prompt
+      const corrId = `prd-${prdSlug}-${i}`;
+      const handoffPrompt = [
+        `[A2A from dashboard to pane-${paneId} | corr=${corrId} | type=request]`,
+        `You are the ${role.persona} on team "${prd.name}".`,
+        `Your task: ${role.task}`,
+        `Scope: ${prd.scope || 'full project'}`,
+        '',
+        'Start working. When done, report completion via A2A result envelope.',
+      ].join('\n');
+
+      try {
+        wez.sendText(paneId, handoffPrompt);
+        wez.sendTextNoEnter(paneId, '\r');
+      } catch (sendErr) {
+        log(`bootstrap handoff failed for pane ${paneId}: ${sendErr.message}`);
+      }
+
+      agents.push({
+        pane_id: paneId,
+        persona: role.persona,
+        worktree: role.worktree || false,
+        branch: wtInfo ? wtInfo.branch : null,
+        task: role.task,
+      });
+
+      teamRoles.push({
+        paneId,
+        persona: role.persona,
+        worktree: role.worktree || false,
+        branch: wtInfo ? wtInfo.branch : null,
+        task: role.task,
+        status: 'dispatched',
+      });
+    }
+
+    // Register the team
+    teamsRegistry.set(prd.name, {
+      prd: prdSlug,
+      createdAt: Date.now(),
+      cwd,
+      roles: teamRoles,
+    });
+
+    sendJson(res, 200, { ok: true, team: prd.name, agents });
+  } catch (err) {
+    log(`POST /api/agency/bootstrap error: ${err.message}`);
     sendJson(res, 500, { error: err.message });
   }
 }
@@ -1050,6 +1332,9 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/routines/fire' && method === 'POST') return handlePostRoutinesFire(req, res);
   if (pathname === '/api/personas' && method === 'GET') return handleGetPersonas(req, res);
   if (pathname === '/api/worktrees' && method === 'GET') return handleGetWorktrees(req, res);
+  if (pathname === '/api/agency/prds' && method === 'GET') return handleGetPRDs(req, res);
+  if (pathname === '/api/agency/teams' && method === 'GET') return handleGetTeams(req, res);
+  if (pathname === '/api/agency/bootstrap' && method === 'POST') return handlePostBootstrap(req, res);
   if (pathname === '/api/tasks' && method === 'GET') return handleGetTasks(res);
   if (pathname === '/api/events' && method === 'GET') return handleEvents(req, res);
   if (pathname === '/api/spawn' && method === 'POST') return handlePostSpawn(req, res);

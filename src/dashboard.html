@@ -887,6 +887,35 @@ code, pre, .mono { font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace
   40% { box-shadow: 0 0 0 6px oklch(0.65 0.24 270 / 0.4); }
   100% { box-shadow: 0 0 0 0 transparent; }
 }
+
+/* ─── Agency Teams ─── */
+.agency-section { margin-top: 20px; border-top: 1px solid var(--border-subtle); padding-top: 16px; }
+.agency-prd-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; margin-bottom: 12px; }
+.agency-prd-card {
+  background: var(--bg-surface); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius); padding: 12px; transition: all 0.2s;
+}
+.agency-prd-card:hover { border-color: var(--accent-dim); background: var(--bg-elevated); transform: translateY(-1px); }
+.agency-prd-name { font-size: 13px; font-weight: 600; margin-bottom: 3px; }
+.agency-prd-meta { font-size: 10px; color: var(--text-tertiary); margin-bottom: 8px; }
+.agency-tree { margin-top: 8px; }
+.agency-team { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius); padding: 12px; margin-bottom: 8px; }
+.agency-team-header { font-size: 14px; font-weight: 700; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+.agency-role { display: flex; align-items: center; gap: 8px; padding: 6px 0 2px 16px; border-left: 2px solid var(--border-subtle); margin-left: 8px; }
+.agency-role:last-child { border-left-color: transparent; }
+.agency-role-connector { color: var(--text-tertiary); font-size: 12px; flex-shrink: 0; width: 16px; text-align: center; margin-left: -17px; }
+.agency-role-info { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; }
+.agency-role-branch { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-tertiary); background: var(--bg-elevated); padding: 1px 5px; border-radius: 4px; }
+.agency-role-task { font-size: 11px; color: var(--text-secondary); padding: 2px 0 4px 24px; margin-left: 8px; }
+.agency-role-actions { display: flex; gap: 4px; padding-left: 24px; margin-left: 8px; margin-bottom: 4px; }
+.agency-role-actions .btn { font-size: 10px; padding: 2px 8px; min-height: unset; }
+.agency-team-complete { background: oklch(0.75 0.18 155 / 0.1); border: 1px solid oklch(0.75 0.18 155 / 0.3); color: var(--green); padding: 10px 14px; border-radius: var(--radius); margin-top: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 600; }
+@media (max-width: 600px) {
+  .agency-section { margin-top: 14px; }
+  .agency-prd-grid { grid-template-columns: 1fr !important; }
+  .agency-role { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .agency-role-actions { flex-wrap: wrap; }
+}
 </style>
 </head>
 <body>
@@ -1056,6 +1085,14 @@ code, pre, .mono { font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace
     <div class="proj-grid" id="projGrid">
       <div class="empty-state">Loading projects...</div>
     </div>
+    <!-- Agency Teams section -->
+    <div class="agency-section" id="agencySection" style="display:none">
+      <div class="panel-header">
+        <div class="panel-title">Agency Teams</div>
+      </div>
+      <div class="agency-prd-grid" id="agencyPrdGrid"></div>
+      <div class="agency-tree" id="agencyTeamsTree"></div>
+    </div>
   </div>
 </div>
 
@@ -1177,6 +1214,8 @@ function switchView(view) {
   document.getElementById('sidebar').style.display = view === 'desktop' ? 'none' : '';
   if (view === 'spawn' && !projectsLoaded) loadProjects();
   if (view === 'spawn' && !personasLoaded) loadPersonas();
+  if (view === 'spawn') startAgencyRefresh();
+  else stopAgencyRefresh();
   if (view === 'desktop') initDesktop();
 }
 
@@ -1651,6 +1690,159 @@ function spawnCustom() {
   if (!cwd) return;
   spawnProject(cwd);
   input.value = '';
+}
+
+// ─── Agency Teams ───
+var agencyRefreshTimer = null;
+
+function startAgencyRefresh() {
+  refreshAgencyTeams();
+  stopAgencyRefresh();
+  agencyRefreshTimer = setInterval(refreshAgencyTeams, 15000);
+}
+
+function stopAgencyRefresh() {
+  if (agencyRefreshTimer) { clearInterval(agencyRefreshTimer); agencyRefreshTimer = null; }
+}
+
+async function refreshAgencyTeams() {
+  var section = document.getElementById('agencySection');
+  if (!section) return;
+  try {
+    var [prdsRes, teamsRes] = await Promise.all([
+      fetch(API + '/api/agency/prds').then(function(r) { return r.ok ? r.json() : null; }).catch(function() { return null; }),
+      fetch(API + '/api/agency/teams').then(function(r) { return r.ok ? r.json() : null; }).catch(function() { return null; })
+    ]);
+    var prds = (prdsRes && prdsRes.prds) || [];
+    var teams = (teamsRes && teamsRes.teams) || [];
+    if (!prds.length && !teams.length) { section.style.display = 'none'; return; }
+    section.style.display = '';
+    renderAgencyPrds(prds, teams);
+    renderAgencyTree(teams);
+  } catch {
+    section.style.display = 'none';
+  }
+}
+
+function renderAgencyPrds(prds, teams) {
+  var grid = document.getElementById('agencyPrdGrid');
+  if (!grid) return;
+  var activeTeamPrds = new Set(teams.map(function(t) { return t.prd; }));
+  grid.innerHTML = prds.map(function(p) {
+    var hasTeam = activeTeamPrds.has(p.name);
+    return '<div class="agency-prd-card">' +
+      '<div class="agency-prd-name">' + esc(p.name) + '</div>' +
+      '<div class="agency-prd-meta">' + (p.roles_count || 0) + ' roles' + (p.scope ? ' \u00b7 scope: ' + esc(p.scope) : '') + '</div>' +
+      (hasTeam
+        ? '<span style="font-size:11px;color:var(--green);font-weight:600">Team active</span>'
+        : '<button class="btn btn-accent" onclick="bootstrapTeam(\'' + esc(p.name).replace(/'/g, "\\'") + '\')">Bootstrap Team</button>') +
+    '</div>';
+  }).join('');
+}
+
+function renderAgencyTree(teams) {
+  var tree = document.getElementById('agencyTeamsTree');
+  if (!tree) return;
+  if (!teams.length) { tree.innerHTML = ''; return; }
+  tree.innerHTML = teams.map(function(team) {
+    var roles = team.roles || [];
+    var allIdle = roles.length > 0 && roles.every(function(r) { return r.status === 'idle'; });
+    var html = '<div class="agency-team">';
+    html += '<div class="agency-team-header"><span style="font-size:16px">&#127919;</span> ' + esc(team.prd) + '</div>';
+    roles.forEach(function(role, i) {
+      var isLast = i === roles.length - 1;
+      var connector = isLast ? '&#9492;' : '&#9500;';
+      var statusDot = role.status === 'working' ? '&#x1f3d7;' : (role.status === 'permission' ? '&#9888;' : '&#9679;');
+      var statusClass = role.status === 'working' ? 'working' : (role.status === 'idle' ? 'idle' : 'permission');
+      html += '<div class="agency-role">';
+      html += '<span class="agency-role-connector">' + connector + '</span>';
+      html += '<div class="agency-role-info">';
+      html += '<span class="persona-badge">' + esc(role.persona || 'agent') + '</span>';
+      if (role.paneId) html += '<span style="font-size:11px;color:var(--text-tertiary)">pane-' + esc(String(role.paneId)) + '</span>';
+      html += '<span class="dot ' + statusClass + '" style="width:6px;height:6px"></span>';
+      html += '<span style="font-size:11px;text-transform:uppercase;font-weight:600">' + esc(role.status || 'unknown') + '</span>';
+      if (role.branch) html += '<span class="agency-role-branch">' + esc(role.branch) + '</span>';
+      html += '</div></div>';
+      if (role.task) html += '<div class="agency-role-task">' + esc(role.task) + '</div>';
+      if (role.worktree || role.branch) {
+        html += '<div class="agency-role-actions">';
+        html += '<button class="btn" onclick="worktreeDiff(\'' + esc(String(role.paneId)) + '\')" title="Show diff">&#9095; Diff</button>';
+        html += '<button class="btn" onclick="worktreeMerge(\'' + esc(String(role.paneId)) + '\')" title="Merge worktree">&#8617; Merge</button>';
+        html += '<button class="btn" onclick="worktreeCleanup(\'' + esc(String(role.paneId)) + '\')" title="Cleanup worktree">&#128465; Cleanup</button>';
+        html += '</div>';
+      }
+    });
+    if (allIdle) {
+      html += '<div class="agency-team-complete">';
+      html += '<span>&#9989; Team done &mdash; ready to merge all worktrees</span>';
+      html += '<button class="btn btn-accent" onclick="mergeAllWorktrees(\'' + esc(team.prd).replace(/'/g, "\\'") + '\')">Merge All</button>';
+      html += '</div>';
+    }
+    html += '</div>';
+    return html;
+  }).join('');
+}
+
+async function bootstrapTeam(prdName) {
+  try {
+    var r = await fetch(API + '/api/agency/bootstrap', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({prd: prdName})
+    });
+    var d = await r.json();
+    if (d.ok) {
+      pushToast({kind: 'success', title: 'Team bootstrapped: ' + prdName, body: (d.agents ? d.agents.length : 0) + ' agents spawned'});
+      refreshAgencyTeams();
+    } else {
+      toast('Bootstrap failed: ' + (d.error || 'unknown'));
+    }
+  } catch(e) {
+    toast('Bootstrap failed: ' + (e.message || 'network error'));
+  }
+}
+
+async function worktreeDiff(paneId) {
+  toast('Check diff for pane-' + paneId + ' via git');
+}
+
+async function worktreeMerge(paneId) {
+  if (!confirm('Merge worktree for pane-' + paneId + '?')) return;
+  try {
+    var r = await fetch(API + '/api/worktrees/' + paneId + '/merge', {method: 'POST'});
+    var d = await r.json();
+    if (d.ok) { pushToast({kind: 'success', title: 'Merged!', body: d.stats || ''}); refreshAgencyTeams(); }
+    else { toast('Merge failed: ' + (d.error || JSON.stringify(d))); }
+  } catch(e) { toast('Merge failed: ' + (e.message || '')); }
+}
+
+async function worktreeCleanup(paneId) {
+  if (!confirm('Cleanup worktree for pane-' + paneId + '?')) return;
+  try {
+    var r = await fetch(API + '/api/worktrees/' + paneId + '/cleanup', {method: 'POST'});
+    var d = await r.json();
+    if (d.ok) { pushToast({kind: 'success', title: 'Cleaned up', body: d.removed || ''}); refreshAgencyTeams(); }
+    else { toast('Cleanup failed: ' + (d.error || '')); }
+  } catch(e) { toast('Cleanup failed: ' + (e.message || '')); }
+}
+
+async function mergeAllWorktrees(prdName) {
+  if (!confirm('Merge ALL worktrees for team "' + prdName + '"?')) return;
+  try {
+    var teamsRes = await fetch(API + '/api/agency/teams').then(function(r) { return r.json(); });
+    var team = (teamsRes.teams || []).find(function(t) { return t.prd === prdName; });
+    if (!team) { toast('Team not found'); return; }
+    var roles = (team.roles || []).filter(function(r) { return r.worktree || r.branch; });
+    var ok = 0; var fail = 0;
+    for (var i = 0; i < roles.length; i++) {
+      try {
+        var r = await fetch(API + '/api/worktrees/' + roles[i].paneId + '/merge', {method: 'POST'});
+        var d = await r.json();
+        if (d.ok) ok++; else fail++;
+      } catch { fail++; }
+    }
+    pushToast({kind: ok > 0 ? 'success' : 'error', title: 'Merge All: ' + ok + ' merged, ' + fail + ' failed'});
+    refreshAgencyTeams();
+  } catch(e) { toast('Merge all failed: ' + (e.message || '')); }
 }
 
 // ─── Toast ───

@@ -2,6 +2,53 @@
 
 All notable changes to theorchestra are documented here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.5.0] - 2026-04-16
+
+### Agency Mode — multi-persona orchestrated teams
+
+The headline feature: drop a PRD → orchestrator spawns a team of persona-specialized Claude agents, each in their own worktree, coordinating via A2A. 5 phases shipped in a single session.
+
+**Phase 1 — Persona injection** (commits 7e3197d, 6a19800, bbe696d)
+- `POST /api/spawn` accepts `{persona, permission_mode}` → builds `claude --append-system-prompt-file <persona.md>` command
+- `GET /api/personas` → 95 personas from `~/.claude/agents/` with YAML frontmatter metadata
+- `spawn_session` MCP tool extended with same params
+- `discoverPanes()` detects persona from WezTerm `tab_title` field (set via `setTabTitle`)
+- 3 bugs found during live E2E: title vs tab_title confusion, shell args vs claude args, --continue resume conflict
+
+**Phase 2 — Dashboard persona UI** (commit e6de964)
+- Persona dropdown in Spawn view (grouped by category via `<optgroup>`)
+- Permission mode selector (bypass/plan/acceptEdits/default)
+- Persona badges on pane cards in Sessions sidebar + Desktop windows
+
+**Phase 3 — Git worktree isolation** (commit e6de964)
+- `POST /api/spawn {worktree: true}` → creates `.worktrees/<persona>-<id>` + branch `claude/agency-<persona>-<id>`
+- `GET /api/worktrees` — list active worktrees
+- `POST /api/worktrees/:paneId/merge` — merge branch to main
+- `POST /api/worktrees/:paneId/cleanup` — remove worktree + branch
+- Auto-cleanup on pane kill
+
+**Phase 4 — PRD-driven team bootstrap** (commit 14d7dc2)
+- `docs/prd/<name>.md` schema with YAML frontmatter roles array
+- `POST /api/agency/bootstrap {prd}` → reads PRD, spawns each role (3s stagger), sends A2A handoff with task, tracks in teamsRegistry
+- `GET /api/agency/teams` — active teams with live pane statuses
+- `GET /api/agency/prds` — list available PRDs
+- `spawn_team` orchestrator action (always escalates)
+
+**Phase 5 — Agency tree view** (commit 14d7dc2)
+- Agency Teams section in Spawn view with PRD cards + Bootstrap button
+- Live tree: team header → role rows with persona badge + status dot + branch + task
+- Merge/Cleanup action buttons per worktree
+- Team completion banner with Merge All
+- Auto-refresh 15s while Spawn tab active
+
+**Live E2E verified**: bootstrapped example-test PRD → reviewer (pane-29) + tester (pane-30) spawned with personas, both showed WORKING in dashboard tree view, persona badges visible in sidebar.
+
+### Also in this release
+
+- CLAUDE.md refreshed to v2.5 with Agency Mode docs
+- 25 legacy files archived to tmp/legacy-src/
+- Reviewer persona pane found 5 real documentation issues (actioned same session)
+
 ## [2.4.4] - 2026-04-15
 
 ### Fix status detection — Unicode ellipsis + "esc to interrupt" (T-060)

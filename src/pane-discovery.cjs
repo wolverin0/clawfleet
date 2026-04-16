@@ -156,8 +156,12 @@ function discoverPanes() {
 
     const isClaude = confidence >= 30;
 
-    // Extract persona from tab title (e.g. "[coder]", "[reviewer]")
-    const personaMatch = title.match(/\[([a-zA-Z0-9._-]+)\]/);
+    // Extract persona from tab_title (wezterm's user-set title) or title (process title).
+    // setTabTitle sets tab_title, but title is the process name (e.g. "bash.exe").
+    // Check both fields — tab_title is the primary source for persona markers.
+    const tabTitle = pane.tab_title || '';
+    const combinedTitle = tabTitle + ' ' + title;
+    const personaMatch = combinedTitle.match(/\[([a-zA-Z0-9._-]+)\]/);
     let persona = personaMatch ? personaMatch[1] : null;
 
     // Fallback: extract persona from --append-system-prompt-file in terminal output

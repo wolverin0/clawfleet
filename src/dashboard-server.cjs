@@ -623,7 +623,30 @@ async function handlePostSpawn(req, res) {
       spawnArgs.push('--permission-mode', body.permission_mode);
     }
 
-    const paneId = wez.spawnPane({ cwd, program, args: spawnArgs.length ? spawnArgs : undefined });
+    // Spawn the shell pane first (no program — just a shell)
+    const paneId = wez.spawnPane({ cwd, program, args: undefined });
+
+    // If persona or permission_mode requested, build and send the claude command
+    // into the new shell. This is the same pattern as spawn_session in mcp-server.cjs.
+    // When persona is set → fresh session (no --continue) so we don't resume an
+    // existing session. Without persona → --continue to resume as before.
+    if (personaName || body.permission_mode) {
+      // Wait for shell to initialize
+      await new Promise(r => setTimeout(r, 2000));
+      let claudeCmd = 'claude';
+      if (personaName) {
+        // Fresh start — persona is a NEW entity
+        const personaPath = resolvePersona(personaName);
+        claudeCmd += ' --append-system-prompt-file "' + personaPath.replace(/\\/g, '/') + '"';
+      } else {
+        claudeCmd += ' --continue';
+      }
+      claudeCmd += ' --dangerously-skip-permissions';
+      if (body.permission_mode && validModes.includes(body.permission_mode)) {
+        claudeCmd += ' --permission-mode ' + body.permission_mode;
+      }
+      wez.sendText(paneId, claudeCmd);
+    }
 
     // If persona assigned, set tab title so discoverPanes() can detect it
     if (personaName) {

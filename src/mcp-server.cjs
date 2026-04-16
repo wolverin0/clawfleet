@@ -601,15 +601,21 @@ function handleToolCall(name, args) {
         } catch { /* ignore */ }
 
         // Type the claude command into the shell
-        // Order matters: claude --resume "X" --dangerously-skip-permissions
+        // When a persona is set → fresh session (no --continue / --resume).
+        // A persona agent is a NEW entity, not a continuation of whatever
+        // session previously ran in that directory. Without this, --continue
+        // resumes the most recent session for that cwd and the persona prompt
+        // gets injected into an existing conversation (wrong behavior).
         let claudeCmd = 'claude';
-        if (args.resume) {
+        if (personaPath) {
+          // Fresh start with persona — no --continue, no --resume
+          claudeCmd += ' --append-system-prompt-file "' + personaPath.replace(/\\/g, '/') + '"';
+        } else if (args.resume) {
           claudeCmd += ' -r ' + (args.resume || '').replace(/"/g, '');
         } else {
           claudeCmd += ' --continue';
         }
         if (skipPerms) claudeCmd += ' --dangerously-skip-permissions';
-        if (personaPath) claudeCmd += ' --append-system-prompt-file "' + personaPath.replace(/\\/g, '/') + '"';
         if (args.permission_mode) claudeCmd += ' --permission-mode ' + args.permission_mode;
         wez.sendText(newPaneId, claudeCmd);
 

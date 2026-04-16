@@ -19,6 +19,29 @@
 
 const discovery = require('./pane-discovery.cjs');
 const wez = require('./wezterm.cjs');
+const os = require('os');
+const path = require('path');
+const fs = require('fs');
+
+// ─── Persona Resolution ──────────────────────────────────────────────────
+
+const AGENTS_DIR = path.join(os.homedir(), '.claude', 'agents');
+
+function resolvePersona(name) {
+  // 1. Exact match: AGENTS_DIR/<name>.md
+  const exact = path.join(AGENTS_DIR, `${name}.md`);
+  if (fs.existsSync(exact)) return exact;
+  // 2. One-level nested: AGENTS_DIR/*/<name>.md
+  try {
+    const dirs = fs.readdirSync(AGENTS_DIR, { withFileTypes: true })
+      .filter(e => e.isDirectory());
+    for (const d of dirs) {
+      const nested = path.join(AGENTS_DIR, d.name, `${name}.md`);
+      if (fs.existsSync(nested)) return nested;
+    }
+  } catch { /* AGENTS_DIR may not exist */ }
+  return null;
+}
 
 // ─── JSON-RPC 2.0 Helpers ─────────────────────────────────────────────────
 
@@ -174,6 +197,15 @@ const TOOLS = [
         dangerously_skip_permissions: {
           type: 'boolean',
           description: 'If true, launch Claude with --dangerously-skip-permissions. Default: false.',
+        },
+        persona: {
+          type: 'string',
+          description: "Name of a Claude agent persona from ~/.claude/agents/ to inject via --append-system-prompt-file. Example: 'coder', 'reviewer', 'dev-backend-api'. The persona .md file must exist in ~/.claude/agents/ (flat or nested in category dirs).",
+        },
+        permission_mode: {
+          type: 'string',
+          enum: ['default', 'plan', 'acceptEdits', 'bypassPermissions'],
+          description: "Claude Code permission mode for the spawned session. 'plan' = read-only (good for reviewers), 'acceptEdits' = auto-approve edits (good for devs), 'bypassPermissions' = skip all (current default).",
         },
       },
     },
@@ -536,6 +568,18 @@ function handleToolCall(name, args) {
       const cwd = args.cwd || process.cwd();
       const skipPerms = args.dangerously_skip_permissions || false;
 
+      // Resolve persona if provided
+      let personaPath = null;
+      if (args.persona) {
+        personaPath = resolvePersona(args.persona);
+        if (!personaPath) {
+          return {
+            content: [{ type: 'text', text: `persona "${args.persona}" not found in ~/.claude/agents/` }],
+            isError: true,
+          };
+        }
+      }
+
       try {
         // Spawn a plain shell pane, then send the claude command as text.
         // This works on all platforms (Windows cmd, bash, pwsh) without
@@ -565,9 +609,16 @@ function handleToolCall(name, args) {
           claudeCmd += ' --continue';
         }
         if (skipPerms) claudeCmd += ' --dangerously-skip-permissions';
+        if (personaPath) claudeCmd += ' --append-system-prompt-file "' + personaPath.replace(/\\/g, '/') + '"';
+        if (args.permission_mode) claudeCmd += ' --permission-mode ' + args.permission_mode;
         wez.sendText(newPaneId, claudeCmd);
 
-        log(`Spawned Claude session in pane ${newPaneId} at ${cwd}`);
+        // Set tab title to persona name for discoverPanes() detection
+        if (args.persona) {
+          try { wez.setTabTitle(newPaneId, '[' + args.persona + ']'); } catch { /* ignore */ }
+        }
+
+        log(`Spawned Claude session in pane ${newPaneId} at ${cwd}${args.persona ? ' [persona=' + args.persona + ']' : ''}`);
 
         // If an initial prompt was given, wait for the session to boot then send it
         if (args.prompt) {
@@ -597,8 +648,10 @@ function handleToolCall(name, args) {
             text: JSON.stringify({
               pane_id: newPaneId,
               cwd,
+              persona: args.persona || null,
+              permission_mode: args.permission_mode || null,
               initial_prompt: args.prompt || null,
-              message: `Claude session spawned in pane ${newPaneId}. ${args.prompt ? 'Initial prompt sent.' : 'Ready for prompts.'}`,
+              message: `Claude session spawned in pane ${newPaneId}.${args.persona ? ' Persona: ' + args.persona + '.' : ''} ${args.prompt ? 'Initial prompt sent.' : 'Ready for prompts.'}`,
             }, null, 2),
           }],
         };

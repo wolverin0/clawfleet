@@ -81,6 +81,7 @@ function collectPanes() {
     workspace: p.workspace ?? 'default',
     confidence: p.confidence ?? 0,
     last_line: p.lastLines ?? '',
+    persona: p.persona ?? null,
   }));
 }
 
@@ -497,12 +498,139 @@ async function handlePostKill(res, paneId) {
   }
 }
 
+// --- persona resolution (v2.5 Agency Mode) ---
+const _os = require('os');
+const AGENTS_DIR = path.join(_os.homedir(), '.claude', 'agents');
+
+function resolvePersona(name) {
+  if (!name) return null;
+  // Sanitize: only allow alnum, dash, underscore, dot — no path traversal
+  const safe = String(name).replace(/[^a-zA-Z0-9._-]/g, '');
+  if (!safe) return null;
+  // 1. Exact flat match: ~/.claude/agents/<name>.md
+  const flat = path.join(AGENTS_DIR, safe + '.md');
+  if (fs.existsSync(flat)) return flat;
+  // 2. Category/name: ~/.claude/agents/*/<name>.md (one level deep)
+  try {
+    const dirs = fs.readdirSync(AGENTS_DIR, { withFileTypes: true });
+    for (const d of dirs) {
+      if (!d.isDirectory()) continue;
+      const nested = path.join(AGENTS_DIR, d.name, safe + '.md');
+      if (fs.existsSync(nested)) return nested;
+    }
+  } catch { /* agents dir missing */ }
+  // 3. Name matches the filename (without category prefix, e.g. "dev-backend-api" lives in development/)
+  try {
+    const dirs = fs.readdirSync(AGENTS_DIR, { withFileTypes: true });
+    for (const d of dirs) {
+      if (!d.isDirectory()) continue;
+      const entries = fs.readdirSync(path.join(AGENTS_DIR, d.name)).filter(f => f.endsWith('.md'));
+      for (const f of entries) {
+        if (f.replace(/\.md$/, '') === safe) return path.join(AGENTS_DIR, d.name, f);
+      }
+    }
+  } catch {}
+  return null;
+}
+
+// Parse YAML frontmatter from a persona .md file (first --- block).
+function parsePersonaFrontmatter(filePath) {
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8').slice(0, 4096);
+    const m = raw.match(/^---\s*\n([\s\S]*?)\n---/);
+    if (!m) return {};
+    const fm = {};
+    for (const line of m[1].split('\n')) {
+      const kv = line.match(/^(\w[\w_-]*):\s*"?([^"]*)"?\s*$/);
+      if (kv) fm[kv[1]] = kv[2].trim();
+    }
+    return fm;
+  } catch { return {}; }
+}
+
+// GET /api/personas — list available persona files with metadata.
+let personasCache = null;
+let personasCacheTs = 0;
+const PERSONAS_CACHE_TTL = 60000;
+
+async function handleGetPersonas(req, res) {
+  try {
+    const now = Date.now();
+    if (personasCache && (now - personasCacheTs) < PERSONAS_CACHE_TTL) {
+      return sendJson(res, 200, personasCache);
+    }
+    const personas = [];
+    if (!fs.existsSync(AGENTS_DIR)) return sendJson(res, 200, []);
+    const walk = (dir, prefix) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (e.isDirectory() && !e.name.startsWith('.')) {
+          walk(path.join(dir, e.name), prefix ? prefix + '/' + e.name : e.name);
+        } else if (e.isFile() && e.name.endsWith('.md')) {
+          const filePath = path.join(dir, e.name);
+          const fm = parsePersonaFrontmatter(filePath);
+          personas.push({
+            name: fm.name || e.name.replace(/\.md$/, ''),
+            file: e.name,
+            category: prefix || null,
+            path: (prefix ? prefix + '/' : '') + e.name,
+            description: fm.description || null,
+            type: fm.type || null,
+            color: fm.color || null,
+          });
+        }
+      }
+    };
+    walk(AGENTS_DIR, '');
+    // Deduplicate: some agents exist at both category/name.md AND category/sub/name.md.
+    // Keep the shorter path (direct child of category).
+    const seen = new Map();
+    for (const p of personas) {
+      const key = p.name;
+      if (!seen.has(key) || p.path.split('/').length < seen.get(key).path.split('/').length) {
+        seen.set(key, p);
+      }
+    }
+    const result = Array.from(seen.values()).sort((a, b) => (a.category || '').localeCompare(b.category || '') || a.name.localeCompare(b.name));
+    personasCache = result;
+    personasCacheTs = now;
+    sendJson(res, 200, result);
+  } catch (err) {
+    sendJson(res, 500, { error: err.message });
+  }
+}
+
 async function handlePostSpawn(req, res) {
   try {
-    const { cwd, program, args } = await parseBody(req);
+    const body = await parseBody(req);
+    const { cwd, program } = body;
     if (!cwd) return sendJson(res, 400, { error: 'missing `cwd` body field' });
-    const paneId = wez.spawnPane({ cwd, program, args });
-    sendJson(res, 200, { ok: true, pane_id: paneId });
+
+    // Build spawn args
+    const spawnArgs = Array.isArray(body.args) ? [...body.args] : [];
+
+    // Persona injection (v2.5)
+    let personaName = null;
+    if (body.persona) {
+      const personaPath = resolvePersona(body.persona);
+      if (!personaPath) return sendJson(res, 400, { error: `persona "${body.persona}" not found in ${AGENTS_DIR}` });
+      spawnArgs.push('--append-system-prompt-file', personaPath);
+      personaName = body.persona;
+    }
+
+    // Permission mode (v2.5)
+    const validModes = ['default', 'plan', 'acceptEdits', 'bypassPermissions'];
+    if (body.permission_mode && validModes.includes(body.permission_mode)) {
+      spawnArgs.push('--permission-mode', body.permission_mode);
+    }
+
+    const paneId = wez.spawnPane({ cwd, program, args: spawnArgs.length ? spawnArgs : undefined });
+
+    // If persona assigned, set tab title so discoverPanes() can detect it
+    if (personaName) {
+      try { wez.setTabTitle(paneId, `[${personaName}]`); } catch { /* best effort */ }
+    }
+
+    sendJson(res, 200, { ok: true, pane_id: paneId, persona: personaName || null });
   } catch (err) {
     sendJson(res, 500, { error: err.message });
   }
@@ -787,6 +915,7 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/a2a/handoff' && method === 'POST') return handlePostA2AHandoff(req, res);
   if (pathname === '/api/handoffs' && method === 'GET') return handleGetHandoffs(req, res, url.searchParams.get('pane'));
   if (pathname === '/api/routines/fire' && method === 'POST') return handlePostRoutinesFire(req, res);
+  if (pathname === '/api/personas' && method === 'GET') return handleGetPersonas(req, res);
   if (pathname === '/api/tasks' && method === 'GET') return handleGetTasks(res);
   if (pathname === '/api/events' && method === 'GET') return handleEvents(req, res);
   if (pathname === '/api/spawn' && method === 'POST') return handlePostSpawn(req, res);

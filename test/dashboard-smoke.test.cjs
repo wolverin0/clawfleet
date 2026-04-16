@@ -233,3 +233,34 @@ test('POST /api/routines/fire with unknown routine → 400 pointing to config', 
   assert.equal(r.status, 400);
   assert.match(r.body.error || '', /not found|_routines-config/i);
 });
+
+// ─── v2.5 Agency Mode: persona endpoints ─────────────────────────────────
+
+test('GET /api/personas returns a non-empty array with name + category fields', async () => {
+  const r = await request('GET', '/api/personas');
+  assert.equal(r.status, 200);
+  assert.ok(Array.isArray(r.body), 'personas must be array');
+  // The user has ~100 persona files installed — expect at least some.
+  assert.ok(r.body.length > 0, 'expected at least 1 persona in ~/.claude/agents/');
+  const first = r.body[0];
+  assert.ok(typeof first.name === 'string' && first.name.length > 0, 'persona must have name');
+  assert.ok('category' in first, 'persona must have category field');
+  assert.ok('description' in first, 'persona must have description field');
+});
+
+test('POST /api/spawn with unknown persona → 400', async () => {
+  const r = await request('POST', '/api/spawn', {
+    body: { cwd: '/tmp', persona: 'nonexistent-agent-xyz-999' },
+  });
+  assert.equal(r.status, 400);
+  assert.match(r.body.error || '', /not found/i);
+});
+
+test('GET /api/panes returns persona field (null for generic panes)', async () => {
+  const r = await request('GET', '/api/panes');
+  assert.equal(r.status, 200);
+  assert.ok(Array.isArray(r.body.panes));
+  if (r.body.panes.length > 0) {
+    assert.ok('persona' in r.body.panes[0], 'pane must have persona field');
+  }
+});

@@ -90,6 +90,7 @@ const STATUS_PATTERNS = {
  * @property {string} workspace - WezTerm workspace name
  * @property {string} lastLines - Last few lines of terminal output
  * @property {number} confidence - 0-100 confidence that this is a Claude session
+ * @property {string|null} persona - Detected persona name from tab title or system prompt file
  */
 function discoverPanes() {
   const rawPanes = wez.listPanes();
@@ -115,6 +116,7 @@ function discoverPanes() {
       discovered.push({
         paneId, isClaude: false, status: 'error', project: null,
         projectName: null, title, workspace, lastLines: '', confidence: 0,
+        persona: null,
       });
       continue;
     }
@@ -154,9 +156,19 @@ function discoverPanes() {
 
     const isClaude = confidence >= 30;
 
+    // Extract persona from tab title (e.g. "[coder]", "[reviewer]")
+    const personaMatch = title.match(/\[([a-zA-Z0-9._-]+)\]/);
+    let persona = personaMatch ? personaMatch[1] : null;
+
+    // Fallback: extract persona from --append-system-prompt-file in terminal output
+    if (!persona) {
+      const sysPromptMatch = lastLines.match(/--append-system-prompt-file\s+\S*[/\\]([a-zA-Z0-9._-]+)\.md/);
+      if (sysPromptMatch) persona = sysPromptMatch[1];
+    }
+
     discovered.push({
       paneId, isClaude, status, project, projectName,
-      title, workspace, lastLines, confidence, rawText: text,
+      title, workspace, lastLines, confidence, rawText: text, persona,
     });
   }
 

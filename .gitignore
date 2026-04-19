@@ -32,6 +32,11 @@ Thumbs.db
 *.png
 *.jpg
 test-*.py
+.playwright-mcp/
+
+# …except images referenced by README/docs
+!docs/screenshots/*.png
+!docs/screenshots/*.jpg
 
 # theorchestra local scratch
 scripts/.*-test.cjs

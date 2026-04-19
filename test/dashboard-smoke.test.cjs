@@ -264,3 +264,83 @@ test('GET /api/panes returns persona field (null for generic panes)', async () =
     assert.ok('persona' in r.body.panes[0], 'pane must have persona field');
   }
 });
+
+// ─── v2.6 Auto-Handoff: parseStatusBar unit tests ────────────────────────
+
+const { parseStatusBar } = require('../src/status-parser.cjs');
+
+test('parseStatusBar extracts ctx/session/weekly/model from a full status line', () => {
+  const line = 'Some chat above\nCtx: 54.0% · Session: 41.0% · Weekly: 69.0% · Model: Opus\nmore output';
+  const out = parseStatusBar(line);
+  assert.ok(out, 'should return an object for a valid status line');
+  assert.equal(out.ctx, 54);
+  assert.equal(out.session, 41);
+  assert.equal(out.weekly, 69);
+  assert.equal(out.model, 'Opus');
+});
+
+test('parseStatusBar returns null when no status fields are present', () => {
+  assert.equal(parseStatusBar('random terminal output with no status bar'), null);
+  assert.equal(parseStatusBar(''), null);
+  assert.equal(parseStatusBar(null), null);
+});
+
+test('parseStatusBar accepts an array of lines and partial matches', () => {
+  const out = parseStatusBar(['foo', 'Ctx: 12.5%', 'bar']);
+  assert.ok(out);
+  assert.equal(out.ctx, 12.5);
+  assert.equal(out.session, null);
+  assert.equal(out.weekly, null);
+  assert.equal(out.model, 'unknown');
+});
+
+// ─── v2.6 Auto-Handoff: /api/panes ctx exposure ──────────────────────────
+
+test('GET /api/panes exposes ctx/session_pct/weekly_pct/model on every pane entry', async () => {
+  const r = await request('GET', '/api/panes');
+  assert.equal(r.status, 200);
+  assert.ok(Array.isArray(r.body.panes));
+  if (r.body.panes.length > 0) {
+    const p = r.body.panes[0];
+    for (const field of ['ctx', 'session_pct', 'weekly_pct', 'model']) {
+      assert.ok(field in p, `pane must have ${field} field`);
+    }
+    // ctx should be a number or null (never undefined or a string)
+    if (p.ctx !== null) assert.equal(typeof p.ctx, 'number', 'ctx must be number or null');
+  }
+});
+
+// ─── v2.6 Auto-Handoff: endpoints ────────────────────────────────────────
+
+test('POST /api/panes/99999/auto-handoff → 404 for unknown pane', async () => {
+  const r = await request('POST', '/api/panes/99999/auto-handoff', { body: {} });
+  assert.equal(r.status, 404);
+  assert.match(r.body.error || '', /not found/i);
+});
+
+test('POST /api/sessions/99999/auto-handoff (alias route) → 404 for unknown pane', async () => {
+  const r = await request('POST', '/api/sessions/99999/auto-handoff', { body: {} });
+  assert.equal(r.status, 404);
+});
+
+test('GET /api/auto-handoff/pending returns {events: array}', async () => {
+  const r = await request('GET', '/api/auto-handoff/pending');
+  assert.equal(r.status, 200);
+  assert.ok(Array.isArray(r.body.events), 'events must be array');
+});
+
+test('POST /api/auto-handoff/suppress with valid pane_id → 200 ok', async () => {
+  const r = await request('POST', '/api/auto-handoff/suppress', {
+    body: { pane_id: 99999, duration_ms: 60000 },
+  });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.ok, true);
+  assert.equal(r.body.pane_id, 99999);
+  assert.ok(typeof r.body.suppressed_until === 'string', 'response must include suppressed_until ISO string');
+});
+
+test('POST /api/auto-handoff/suppress with missing pane_id → 400', async () => {
+  const r = await request('POST', '/api/auto-handoff/suppress', { body: {} });
+  assert.equal(r.status, 400);
+  assert.match(r.body.error || '', /pane_id/i);
+});

@@ -207,6 +207,10 @@ const TOOLS = [
           enum: ['default', 'plan', 'acceptEdits', 'bypassPermissions'],
           description: "Claude Code permission mode for the spawned session. 'plan' = read-only (good for reviewers), 'acceptEdits' = auto-approve edits (good for devs), 'bypassPermissions' = skip all (current default).",
         },
+        spawned_by_pane_id: {
+          type: 'number',
+          description: "Pane ID of the coordinator that is spawning this peer. If provided, the initial prompt is wrapped with a [PEER-PANE CONTEXT] header telling the executor its own pane_id and the coordinator's pane_id, plus how to report back via A2A envelopes. Always set this when you are a peer pane spawning another peer.",
+        },
       },
     },
   },
@@ -381,11 +385,15 @@ function handleToolCall(name, args) {
 
       try {
         wez.sendText(paneId, text);
-        // Belt-and-suspenders: for long multiline prompts, send an extra \r
-        // in case the original \r got swallowed by wezterm's send-text --no-paste
-        if (text.length > 500 || text.includes('\n')) {
-          try { wez.sendTextNoEnter(paneId, '\r'); } catch { /* ignore */ }
-        }
+        // Triple-redundant enter submission — see spawn_session for the
+        // full rationale. Sync retry covers short-prompt \r-swallowing;
+        // async 250ms retry covers back-to-back \r being coalesced.
+        // Both are harmless no-ops on successful submit (Claude TUI
+        // ignores bare enter on empty input).
+        try { wez.sendTextNoEnter(paneId, '\r'); } catch { /* ignore */ }
+        setTimeout(() => {
+          try { wez.sendText(paneId, ''); } catch { /* ignore */ }
+        }, 250);
         log(`Sent prompt to pane ${paneId}: ${text.slice(0, 80)}...`);
         return {
           content: [{ type: 'text', text: `Prompt sent to pane ${paneId}. The session will now process it. Use read_output or get_status later to check the result.` }],
@@ -658,7 +666,51 @@ function handleToolCall(name, args) {
             } catch { /* pane not ready */ }
           }
 
-          wez.sendText(newPaneId, args.prompt);
+          // If the caller declared itself as coordinator, wrap the prompt with a
+          // peer-pane bootstrap so the executor knows (a) its own pane_id,
+          // (b) its coordinator's pane_id, (c) how to emit A2A envelopes back.
+          // Persona files were written for in-process Agent subagents and have
+          // no A2A awareness; this prefix bridges that gap without touching
+          // 95+ persona files.
+          let finalPrompt = args.prompt;
+          if (typeof args.spawned_by_pane_id === 'number') {
+            const coord = args.spawned_by_pane_id;
+            const me = newPaneId;
+            const header = [
+              '[PEER-PANE CONTEXT]',
+              `You are pane-${me}. You were spawned by pane-${coord} (your coordinator).`,
+              'You are a PEER PANE (not an in-process Agent/Task subagent). Report progress back via:',
+              `  mcp__wezbridge__send_prompt({ pane_id: ${coord}, text: "[A2A from pane-${me} to pane-${coord} | corr=<coord-chosen or invented> | type=progress|result|error]\\n<body>" })`,
+              `  mcp__wezbridge__send_key({ pane_id: ${coord}, key: "enter" })`,
+              'Cadence: emit type=progress every ~3 min during long work; type=result (with commit SHA / artefact path) on completion; type=error (with reason) on abort.',
+              'See ~/.claude/CLAUDE.md "Peer-Pane A2A Protocol" for envelope rules and "Coordinator role declaration" if you plan to spawn your own peers.',
+              '',
+              '[TASK]',
+              '',
+            ].join('\n');
+            finalPrompt = header + args.prompt;
+          }
+
+          wez.sendText(newPaneId, finalPrompt);
+          // Triple-redundant enter submission because wezterm's
+          // `cli send-text --no-paste` is unreliable about the trailing
+          // \r in various ways:
+          //   (a) Long prompts: \r gets swallowed (pane-33, elduderino).
+          //   (b) Short prompts: \r gets swallowed (pane-35 E2E, 114 chars).
+          //   (c) Immediate back-to-back \r retries ALSO get swallowed
+          //       (pane-36 E2E — the length-gated retry fired but prompt
+          //       still sat unsent; only a fresh RPC `send_key('enter')`
+          //       minutes later unstuck it).
+          // Solution: fire one sync retry for cases (a)/(b), plus a
+          // SECOND async retry after 250ms for case (c), giving wezterm
+          // time to flush. The async retry uses wez.sendText(paneId, '')
+          // which is the same internal path as send_key('enter') (empty
+          // text + appended \r) — proven to work when separated in time.
+          // Extra enters on empty input are harmless no-ops in Claude's TUI.
+          try { wez.sendTextNoEnter(newPaneId, '\r'); } catch { /* ignore */ }
+          setTimeout(() => {
+            try { wez.sendText(newPaneId, ''); } catch { /* ignore */ }
+          }, 250);
         }
 
         return {
@@ -669,8 +721,9 @@ function handleToolCall(name, args) {
               cwd,
               persona: args.persona || null,
               permission_mode: args.permission_mode || null,
+              spawned_by_pane_id: typeof args.spawned_by_pane_id === 'number' ? args.spawned_by_pane_id : null,
               initial_prompt: args.prompt || null,
-              message: `Claude session spawned in pane ${newPaneId}.${args.persona ? ' Persona: ' + args.persona + '.' : ''} ${args.prompt ? 'Initial prompt sent.' : 'Ready for prompts.'}`,
+              message: `Claude session spawned in pane ${newPaneId}.${args.persona ? ' Persona: ' + args.persona + '.' : ''} ${args.prompt ? 'Initial prompt sent.' : 'Ready for prompts.'}${typeof args.spawned_by_pane_id === 'number' ? ' Peer-pane bootstrap injected (coordinator=pane-' + args.spawned_by_pane_id + ').' : ''}`,
             }, null, 2),
           }],
         };

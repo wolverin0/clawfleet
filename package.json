@@ -1,6 +1,6 @@
 {
   "name": "theorchestra",
-  "version": "2.6.0",
+  "version": "2.7.0",
   "description": "Agent-centric multi-agent orchestrator for Claude Code and Codex sessions, with WezTerm panes as the substrate.",
   "type": "commonjs",
   "license": "MIT",

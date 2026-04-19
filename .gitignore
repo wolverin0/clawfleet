@@ -50,3 +50,6 @@ tmp/dashboard-cjs-legacy/
 tmp/legacy-root/
 tmp/screenshots/
 tmp/legacy-src/
+
+# v3.0 frontend build output (regenerated via `npm run v3:build-frontend`)
+dist/

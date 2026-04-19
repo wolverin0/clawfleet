@@ -1,7 +1,7 @@
 {
   "name": "theorchestra",
-  "version": "2.7.0",
-  "description": "Agent-centric multi-agent orchestrator for Claude Code and Codex sessions, with WezTerm panes as the substrate.",
+  "version": "3.0.0-alpha.1",
+  "description": "Portable AI-orchestration substrate. PTY-backed Claude/Codex/etc. panes rendered in a browser dashboard with active omniclaude orchestration.",
   "type": "commonjs",
   "license": "MIT",
   "author": "Pablo Pauola",
@@ -18,13 +18,13 @@
     "codex",
     "multi-agent",
     "orchestrator",
-    "wezterm",
+    "node-pty",
     "mcp",
     "a2a",
     "telegram"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "scripts": {
     "mcp": "node src/mcp-server.cjs",
@@ -33,11 +33,33 @@
     "tasks-watcher": "node src/tasks-watcher.cjs",
     "orchestrator": "bash scripts/omniclaude-forever.sh",
     "dashboard": "node src/dashboard-server.cjs",
-    "test": "node --test --test-reporter=spec test/*.test.cjs"
+    "test": "node --test --test-reporter=spec test/*.test.cjs",
+    "v3:start": "tsx scripts/theorchestra-start.ts",
+    "v3:backend": "tsx scripts/theorchestra-start.ts",
+    "v3:frontend": "vite --config src/frontend/vite.config.ts",
+    "v3:build-frontend": "vite build --config src/frontend/vite.config.ts",
+    "v3:typecheck": "tsc --noEmit && tsc --noEmit -p src/frontend/tsconfig.json"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
     "dotenv": "^17.3.1",
+    "node-pty": "^1.0.0",
+    "ws": "^8.18.0",
     "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "@types/react": "^18.3.10",
+    "@types/react-dom": "^18.3.0",
+    "@types/ws": "^8.5.12",
+    "@vitejs/plugin-react": "^4.3.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.2",
+    "vite": "^5.4.8",
+    "@xterm/xterm": "^5.5.0",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-serialize": "^0.13.0"
   }
 }

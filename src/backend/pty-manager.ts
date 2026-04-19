@@ -11,6 +11,8 @@ import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import * as pty from 'node-pty';
 import type { IPty } from 'node-pty';
+// @xterm/headless is ESM-only but tsx transparently resolves it in CJS mode.
+import { Terminal as HeadlessTerminal } from '@xterm/headless';
 
 import {
   RING_BUFFER_LINES,
@@ -36,6 +38,12 @@ interface PtyEntry {
   exitSignal: number | null;
   /** Timestamp (ms epoch) of the last `data` event from the pty. */
   lastDataAt: number | null;
+  /**
+   * Headless xterm parser — fed every PTY chunk. Lets us answer
+   * `renderedBuffer(id)` with the exact text xterm.js renders in the browser.
+   * Per ADR-003 addendum; replaces the Rust agent-browser CDP path.
+   */
+  headless: HeadlessTerminal;
 }
 
 export interface PtyDataEvent {
@@ -86,6 +94,13 @@ export class PtyManager extends EventEmitter {
       spawnedByPaneId: opts.spawnedByPaneId ?? null,
     };
 
+    const headless = new HeadlessTerminal({
+      cols,
+      rows,
+      scrollback: RING_BUFFER_LINES,
+      allowProposedApi: true,
+    });
+
     const entry: PtyEntry = {
       record,
       pty: child,
@@ -95,12 +110,20 @@ export class PtyManager extends EventEmitter {
       exitCode: null,
       exitSignal: null,
       lastDataAt: null,
+      headless,
     };
     this.sessions.set(sessionId, entry);
 
     child.onData((chunk: string) => {
       entry.lastDataAt = Date.now();
       this.ingest(entry, chunk);
+      // Feed the headless xterm so renderedBuffer(id) mirrors what the
+      // browser's xterm.js would display. Non-fatal if this throws.
+      try {
+        entry.headless.write(chunk);
+      } catch {
+        /* swallow — an emitter hiccup here must not take down the data path */
+      }
       this.emit('data', { sessionId, data: chunk } satisfies PtyDataEvent);
     });
 
@@ -150,6 +173,40 @@ export class PtyManager extends EventEmitter {
     } catch {
       // PTY may have exited between our check and the resize call; ignore.
     }
+    // Keep the headless parser in lockstep so line wrapping matches the
+    // browser's rendering. Only required for accurate renderedBuffer() output.
+    try {
+      entry.headless.resize(safeCols, safeRows);
+    } catch {
+      /* headless terminal may have been disposed; ignore */
+    }
+  }
+
+  /**
+   * The rendered text buffer, per ADR-003 addendum. Returns the visible
+   * terminal contents (including scrollback) as one string per row, trimmed
+   * of trailing whitespace. This matches what xterm.js renders in the
+   * browser, so emitters + omniclaude see the same text the user sees.
+   */
+  renderedBuffer(id: SessionId): string[] {
+    const entry = this.sessions.get(id);
+    if (!entry) return [];
+    const buf = entry.headless.buffer.active;
+    const lines: string[] = [];
+    const total = buf.length;
+    for (let i = 0; i < total; i++) {
+      const line = buf.getLine(i);
+      lines.push(line ? line.translateToString(true) : '');
+    }
+    return lines;
+  }
+
+  /** Last N rendered lines (skipping leading blanks). */
+  renderedTail(id: SessionId, n: number): string[] {
+    const all = this.renderedBuffer(id);
+    const nonEmpty = all.filter((l) => l.length > 0);
+    const count = Math.max(0, Math.min(n, nonEmpty.length));
+    return nonEmpty.slice(nonEmpty.length - count);
   }
 
   scrollback(id: SessionId): string {
@@ -208,6 +265,25 @@ export class PtyManager extends EventEmitter {
     return true;
   }
 
+  /**
+   * Test-only: bypass the child PTY and inject a data chunk directly into
+   * the ring buffer, headless terminal, and event stream. Used by Phase 3
+   * gate harnesses and future emitter tests that need deterministic output
+   * without depending on the underlying shell's echo/prompt behaviour.
+   */
+  _injectForTest(id: SessionId, chunk: string): void {
+    const entry = this.sessions.get(id);
+    if (!entry) return;
+    entry.lastDataAt = Date.now();
+    this.ingest(entry, chunk);
+    try {
+      entry.headless.write(chunk);
+    } catch {
+      /* ignore */
+    }
+    this.emit('data', { sessionId: id, data: chunk } satisfies PtyDataEvent);
+  }
+
   kill(id: SessionId): void {
     const entry = this.sessions.get(id);
     if (!entry) return;
@@ -217,6 +293,11 @@ export class PtyManager extends EventEmitter {
       } catch {
         // Already dead — onExit will fire and mark exited.
       }
+    }
+    try {
+      entry.headless.dispose();
+    } catch {
+      /* already disposed */
     }
     this.sessions.delete(id);
   }

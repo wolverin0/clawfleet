@@ -16,6 +16,7 @@ import * as path from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 
 import { PtyManager, type PtyDataEvent, type PtyExitEvent } from './pty-manager.js';
+import { EventBus, writeSseEvent, writeSseHeaders } from './events.js';
 import {
   DEFAULT_DASHBOARD_PORT,
   WS_PATH_PREFIX,
@@ -157,7 +158,7 @@ function matchSessionRoute(pathname: string): SessionRouteMatch | null {
   return { sessionId, suffix };
 }
 
-function makeHttpHandler(manager: PtyManager) {
+function makeHttpHandler(manager: PtyManager, bus: EventBus) {
   return async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
     const method = req.method ?? 'GET';
     const url = req.url ?? '/';
@@ -176,6 +177,25 @@ function makeHttpHandler(manager: PtyManager) {
     if (method === 'GET' && pathname === '/api/health') {
       writeJson(res, 200, { ok: true, version: VERSION });
       return;
+    }
+
+    if (method === 'GET' && pathname === '/events') {
+      writeSseHeaders(res);
+      const unsubscribe = bus.subscribe((evt) => writeSseEvent(res, evt));
+      const heartbeat = setInterval(() => res.write(': ping\n\n'), 30_000);
+      const onClose = (): void => {
+        unsubscribe();
+        clearInterval(heartbeat);
+      };
+      req.on('close', onClose);
+      req.on('error', onClose);
+      // Don't end() — SSE is kept open until the client disconnects.
+      return;
+    }
+
+    if (method === 'GET' && pathname === '/api/sessions') {
+      // Optional enhancement point — omitted from conditional chain duplication.
+      // Fall through to the existing '/api/sessions' handler below.
     }
 
     if (method === 'GET' && pathname === '/api/sessions') {
@@ -479,11 +499,20 @@ function extractSessionId(pathname: string): SessionId | null {
   return id;
 }
 
+export interface StartServerOptions {
+  port?: number;
+  bus?: EventBus;
+}
+
 export async function startServer(
   manager: PtyManager,
-  port: number = DEFAULT_DASHBOARD_PORT,
-): Promise<http.Server> {
-  const server = http.createServer(makeHttpHandler(manager));
+  portOrOpts?: number | StartServerOptions,
+): Promise<{ server: http.Server; bus: EventBus }> {
+  const opts: StartServerOptions =
+    typeof portOrOpts === 'number' ? { port: portOrOpts } : portOrOpts ?? {};
+  const port = opts.port ?? DEFAULT_DASHBOARD_PORT;
+  const bus = opts.bus ?? new EventBus();
+  const server = http.createServer(makeHttpHandler(manager, bus));
   const wss = new WebSocketServer({ noServer: true });
 
   server.on('upgrade', (req, socket, head) => {
@@ -514,5 +543,5 @@ export async function startServer(
     });
   });
 
-  return server;
+  return { server, bus };
 }

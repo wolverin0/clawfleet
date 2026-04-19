@@ -86,3 +86,64 @@ export const RING_BUFFER_LINES = 10_000;
  * deterministic signal.
  */
 export const WORKING_THRESHOLD_MS = 3_000;
+
+/**
+ * SSE event bus schema (ADR-003 + addendum). Omniclaude and the dashboard
+ * both subscribe to these events over GET /events. Every event has an `id`
+ * (monotonic per server run) and a `ts` (ISO-8601) for correlation.
+ */
+export type SseEvent =
+  | { id: number; ts: string; type: 'pane_idle'; sessionId: SessionId }
+  | { id: number; ts: string; type: 'permission_prompt'; sessionId: SessionId; promptText: string }
+  | { id: number; ts: string; type: 'peer_orphaned'; sessionId: SessionId; deadPeer: SessionId; corr: string }
+  | {
+      id: number;
+      ts: string;
+      type: 'ctx_threshold';
+      sessionId: SessionId;
+      percent: number;
+      crossed: 30 | 50;
+    }
+  | {
+      id: number;
+      ts: string;
+      type: 'a2a_received';
+      sessionId: SessionId;
+      from: string;
+      to: string;
+      corr: string;
+      envelopeType: 'request' | 'ack' | 'progress' | 'result' | 'error';
+    }
+  | { id: number; ts: string; type: 'pane_stuck'; sessionId: SessionId; idleMs: number }
+  | {
+      id: number;
+      ts: string;
+      type: 'task_dispatched';
+      taskId: string;
+      owner: string | null;
+      path: string;
+    }
+  | {
+      id: number;
+      ts: string;
+      type: 'task_completed';
+      taskId: string;
+      owner: string | null;
+      path: string;
+    };
+
+export type SseEventType = SseEvent['type'];
+
+export const SSE_EVENT_TYPES: readonly SseEventType[] = [
+  'pane_idle',
+  'permission_prompt',
+  'peer_orphaned',
+  'ctx_threshold',
+  'a2a_received',
+  'pane_stuck',
+  'task_dispatched',
+  'task_completed',
+] as const;
+
+/** Default pane_stuck threshold — 10 min of "working" with no output change. */
+export const STUCK_THRESHOLD_MS = 10 * 60 * 1000;

@@ -6,9 +6,16 @@
  * on DEFAULT_DASHBOARD_PORT.
  */
 
+import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { PtyManager } from '../src/backend/pty-manager.js';
 import { startServer } from '../src/backend/ws-server.js';
+import { attachStatusBarEmitter } from '../src/backend/event-emitters/status-bar.js';
+import { attachA2aScanner } from '../src/backend/event-emitters/a2a-scanner.js';
+import {
+  attachStuckEmitter,
+  attachTasksWatcher,
+} from '../src/backend/event-emitters/stuck-and-tasks.js';
 import {
   DEFAULT_DASHBOARD_PORT,
   type PtySpawnOptions,
@@ -102,7 +109,17 @@ async function main(): Promise<void> {
   const defaultSession = spawnDefaultSession(manager);
 
   const port = Number.parseInt(process.env.THEORCHESTRA_PORT ?? '', 10) || DEFAULT_DASHBOARD_PORT;
-  const server = await startServer(manager, port);
+  const { server, bus } = await startServer(manager, port);
+
+  // Attach the Phase 3 event emitters. Each returns a disposer we'd call on
+  // shutdown; we just drop them for now (process exit tears everything down).
+  attachStatusBarEmitter(manager, bus);
+  attachA2aScanner(manager, bus);
+  attachStuckEmitter(manager, bus);
+  const tasksPath =
+    process.env.THEORCHESTRA_TASKS_FILE ?? path.resolve('vault', 'active_tasks.md');
+  attachTasksWatcher(bus, tasksPath);
+  console.log(`[theorchestra] SSE emitters attached; tasks watcher on ${tasksPath}`);
 
   console.log(
     `[theorchestra] listening on :${port}, default session ${defaultSession.sessionId}`,

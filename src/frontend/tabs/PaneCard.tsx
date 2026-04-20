@@ -52,6 +52,10 @@ interface PaneCardProps {
   active?: boolean;
   onSelect?: () => void;
   onKill?: () => void;
+  /** Desktop-tab only: clicked `.dc` / `.dm` dots. */
+  onMinimize?: () => void;
+  /** Desktop-tab only: clicked `.dx` dot. */
+  onMaximize?: () => void;
 }
 
 function projectName(cwd: string, tabTitle: string | undefined): string {
@@ -86,7 +90,15 @@ const KEYS_STRIP: ReadonlyArray<{ label: string; key: string; title: string }> =
   { label: '^C', key: 'ctrl+c', title: 'Ctrl+C — interrupt' },
 ];
 
-export function PaneCard({ session, peerSessions, active, onSelect, onKill }: PaneCardProps) {
+export function PaneCard({
+  session,
+  peerSessions,
+  active,
+  onSelect,
+  onKill,
+  onMinimize,
+  onMaximize,
+}: PaneCardProps) {
   const [detail, setDetail] = useState<StatusDetail | null>(null);
   const [promptText, setPromptText] = useState('');
   const [sending, setSending] = useState(false);
@@ -164,14 +176,21 @@ export function PaneCard({ session, peerSessions, active, onSelect, onKill }: Pa
   };
 
   const handleKill = async (): Promise<void> => {
-    if (!window.confirm(`Kill pane ${shortId(session.sessionId)}?`)) return;
+    // Confirmation via flash — dialogs block the pane-card (and in some
+    // Chromium-embedded modes return false silently).
+    setFlash(`killing pane ${shortId(session.sessionId)}…`);
     try {
-      await authedFetch(`/api/sessions/${encodeURIComponent(session.sessionId)}`, {
-        method: 'DELETE',
-      });
+      const res = await authedFetch(
+        `/api/sessions/${encodeURIComponent(session.sessionId)}`,
+        { method: 'DELETE' },
+      );
+      if (!res.ok) {
+        setFlash(`kill failed: HTTP ${res.status}`);
+        return;
+      }
       onKill?.();
-    } catch {
-      /* pane vanishes on next /sessions poll */
+    } catch (e2) {
+      setFlash(`kill error: ${e2 instanceof Error ? e2.message : String(e2)}`);
     }
   };
 
@@ -356,10 +375,38 @@ export function PaneCard({ session, peerSessions, active, onSelect, onKill }: Pa
   return (
     <div className={`dwin ${active ? 'active' : ''}`} onClick={onSelect}>
       <div className="dwin-header">
-        <div className="dwin-dots" aria-hidden="true">
-          <span className="dc" />
-          <span className="dm" />
-          <span className="dx" />
+        <div className="dwin-dots">
+          {/* v2.7 parity: dc=minimize, dm=minimize, dx=maximize. Kill via ✕. */}
+          <span
+            className="dc"
+            role="button"
+            aria-label="Minimize"
+            title="Minimize"
+            onClick={(e) => {
+              e.stopPropagation();
+              onMinimize?.();
+            }}
+          />
+          <span
+            className="dm"
+            role="button"
+            aria-label="Minimize"
+            title="Minimize"
+            onClick={(e) => {
+              e.stopPropagation();
+              onMinimize?.();
+            }}
+          />
+          <span
+            className="dx"
+            role="button"
+            aria-label="Maximize"
+            title="Maximize / restore"
+            onClick={(e) => {
+              e.stopPropagation();
+              onMaximize?.();
+            }}
+          />
         </div>
         <span className="dwin-name" title={session.cwd}>
           {name}

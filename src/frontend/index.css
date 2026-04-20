@@ -1656,6 +1656,50 @@ body,
   background: oklch(0.65 0.24 270 / 0.3);
 }
 
+/* Make the pane body user-select-able (was being blocked by wrapper drag). */
+.dwin-float .dwin-body,
+.dwin-float .dwin-line {
+  user-select: text;
+  cursor: text;
+}
+
+/* Dots are real buttons in the Desktop tab — give them a pointer. */
+.dwin-float .dwin-dots .dc,
+.dwin-float .dwin-dots .dm,
+.dwin-float .dwin-dots .dx {
+  cursor: pointer;
+}
+
+/* Minimized-dock at the bottom of the desktop area. */
+.desktop-dock {
+  display: flex;
+  gap: 6px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--glass-border);
+  background: var(--bg-surface);
+  flex-shrink: 0;
+}
+
+.desktop-dock-item {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+
+.desktop-dock-item:hover {
+  transform: translateY(-2px) scale(1.05);
+}
+
 /* --- Handoff + history popovers --- */
 
 .dwin-handoff-popover,

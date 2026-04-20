@@ -127,11 +127,19 @@ function isSpawnOptions(v: unknown): v is PtySpawnOptions {
   return typeof o.cli === 'string' && o.cli.length > 0;
 }
 
-/** Translate v2.7-compatible key aliases into byte sequences to write to the PTY. */
+/**
+ * Translate v2.7-compatible key aliases into byte sequences to write to the PTY.
+ *
+ * Covers everything the dashboard key-strip can fire, including the interactive-
+ * menu navigation keys Claude needs (`/mcp`, `/status`, permission picker). ANSI
+ * sequences match xterm/VT100 conventions — same ones node-pty/ConPTY emits from
+ * a real keyboard.
+ */
 function keyAliasToBytes(key: string): string {
-  const k = key.toLowerCase();
+  const k = key.toLowerCase().trim();
   switch (k) {
     case 'enter':
+    case 'return':
       return '\r';
     case 'ctrl+c':
     case 'ctrl-c':
@@ -139,6 +147,44 @@ function keyAliasToBytes(key: string): string {
     case 'alt+m':
     case 'meta+m':
       return '\x1bm';
+    // Menu navigation — critical for Claude TUIs.
+    case 'esc':
+    case 'escape':
+      return '\x1b';
+    case 'tab':
+      return '\t';
+    case 'shift+tab':
+    case 'shift-tab':
+      return '\x1b[Z';
+    case 'up':
+    case 'arrowup':
+      return '\x1b[A';
+    case 'down':
+    case 'arrowdown':
+      return '\x1b[B';
+    case 'right':
+    case 'arrowright':
+      return '\x1b[C';
+    case 'left':
+    case 'arrowleft':
+      return '\x1b[D';
+    case 'home':
+      return '\x1b[H';
+    case 'end':
+      return '\x1b[F';
+    case 'pageup':
+    case 'page-up':
+      return '\x1b[5~';
+    case 'pagedown':
+    case 'page-down':
+      return '\x1b[6~';
+    case 'backspace':
+      return '\x7f';
+    case 'delete':
+    case 'del':
+      return '\x1b[3~';
+    case 'space':
+      return ' ';
     case 'y':
     case '1':
       return '1';

@@ -468,6 +468,31 @@ async function main(): Promise<void> {
       },
     },
     {
+      name: 'UI.15 Key aliases — ESC · Tab · arrows · PageUp — all accepted by /key',
+      run: async () => {
+        const listRes = await fetch(`http://127.0.0.1:${s.port}/api/sessions`, {
+          headers: { Authorization: `Bearer ${s.token}` },
+        });
+        const list = (await listRes.json()) as Array<{ sessionId: string }>;
+        const sid = list[0]?.sessionId;
+        if (!sid) throw new Error('no session for key alias test');
+        const aliases = ['escape', 'tab', 'shift+tab', 'up', 'down', 'left', 'right', 'home', 'end', 'pageup', 'pagedown', 'backspace'];
+        for (const key of aliases) {
+          const r = await fetch(`http://127.0.0.1:${s.port}/api/sessions/${sid}/key`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.token}` },
+            body: JSON.stringify({ key }),
+          });
+          if (!r.ok) throw new Error(`/key rejected alias "${key}": HTTP ${r.status}`);
+          const body = (await r.json()) as { bytes: number };
+          if (typeof body.bytes !== 'number' || body.bytes < 1) {
+            throw new Error(`alias "${key}" translated to 0 bytes (unknown?)`);
+          }
+        }
+        return `${aliases.length} key aliases accepted`;
+      },
+    },
+    {
       name: 'UI.14 MemoryMaster bridge writes ctx_threshold event to inbox.jsonl',
       run: async () => {
         const inboxFile = path.join(s.tmpDir, '_memorymaster', 'inbox.jsonl');

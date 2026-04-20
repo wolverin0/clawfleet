@@ -272,13 +272,15 @@ export class PtyManager extends EventEmitter {
   statusDetail(id: SessionId): SessionStatusDetail | undefined {
     const entry = this.sessions.get(id);
     if (!entry) return undefined;
+    // Use xterm-headless rendered output so callers get clean text (ANSI
+    // escape sequences already interpreted) instead of raw PTY bytes.
     return {
       sessionId: id,
       status: this.status(id),
       exitCode: entry.exitCode,
       exitSignal: entry.exitSignal,
       lastOutputAt: entry.lastDataAt === null ? null : new Date(entry.lastDataAt).toISOString(),
-      lastLines: this.scrollbackTail(id, 10),
+      lastLines: this.renderedTail(id, 20),
     };
   }
 

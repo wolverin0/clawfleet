@@ -195,13 +195,309 @@ body,
   max-width: 480px;
 }
 
-/* --- Sessions tab (preserves U0 layout until U2 replaces it) --- */
+/* --- Sessions tab: U2 pane-card grid --- */
 
 .sessions-tab {
   flex: 1;
   display: flex;
   min-height: 0;
   background: var(--bg-app);
+}
+
+.sessions-tab-grid {
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.pane-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-content: start;
+}
+
+@media (max-width: 1100px) {
+  .pane-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pane-grid-cell {
+  min-height: 260px;
+  display: flex;
+}
+
+.pane-grid-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-tertiary);
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.pane-grid-empty-title {
+  font-size: 16px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.pane-grid-empty-body {
+  font-size: 13px;
+  max-width: 440px;
+}
+
+.pane-grid-empty-err {
+  font-size: 12px;
+  color: var(--red);
+}
+
+/* --- dwin (pane card) — ported from v2.x --- */
+
+.dwin {
+  background: var(--bg-surface);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  overflow: hidden;
+  transition:
+    box-shadow 0.15s,
+    border-color 0.15s;
+}
+
+.dwin.active {
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.dwin-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--glass-border);
+  font-size: 11px;
+  flex-shrink: 0;
+  cursor: default;
+  user-select: none;
+}
+
+.dwin-dots {
+  display: flex;
+  gap: 5px;
+}
+
+.dwin-dots span {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.dwin-dots .dc {
+  background: #ff5f57;
+}
+
+.dwin-dots .dm {
+  background: #febc2e;
+}
+
+.dwin-dots .dx {
+  background: #28c840;
+}
+
+.dwin-name {
+  flex: 1;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.dwin-st {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 3px;
+  letter-spacing: 0.5px;
+}
+
+.dwin-st.idle {
+  background: oklch(0.75 0.18 155 / 0.15);
+  color: var(--green);
+}
+
+.dwin-st.working {
+  background: oklch(0.80 0.18 85 / 0.15);
+  color: var(--yellow);
+}
+
+.dwin-st.exited {
+  background: oklch(0.50 0.015 260 / 0.2);
+  color: var(--text-tertiary);
+}
+
+.dwin-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 3px;
+  line-height: 1;
+}
+
+.dwin-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.dwin-btn-kill:hover {
+  color: var(--red);
+}
+
+.dwin-body {
+  flex: 1;
+  min-height: 120px;
+  max-height: 280px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px 10px;
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.5;
+  color: oklch(0.74 0.01 260);
+  background: oklch(0.07 0.012 270);
+}
+
+.dwin-body::-webkit-scrollbar {
+  width: 4px;
+}
+
+.dwin-body::-webkit-scrollbar-thumb {
+  background: var(--glass-border);
+  border-radius: 2px;
+}
+
+.dwin-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.dwin-body-empty {
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+.dwin-prompt {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--glass-border);
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.dwin-prompt input {
+  flex: 1;
+  background: var(--bg-app);
+  border: 1px solid var(--glass-border);
+  border-radius: 5px;
+  padding: 4px 8px;
+  font-size: 10px;
+  color: var(--text-primary);
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  outline: none;
+}
+
+.dwin-prompt input:focus {
+  border-color: var(--accent);
+}
+
+.dwin-prompt input:disabled {
+  opacity: 0.4;
+}
+
+.dwin-prompt button {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 5px;
+  border: none;
+  cursor: pointer;
+  background: var(--accent);
+  color: #fff;
+  font-family: inherit;
+}
+
+.dwin-prompt button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.dwin-err {
+  padding: 4px 10px;
+  font-size: 10px;
+  color: var(--red);
+  background: rgba(239, 68, 68, 0.08);
+  border-top: 1px solid rgba(239, 68, 68, 0.15);
+}
+
+.dwin-meta {
+  display: flex;
+  gap: 10px;
+  padding: 4px 10px;
+  font-size: 9px;
+  color: var(--text-tertiary);
+  background: rgba(0, 0, 0, 0.15);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  border-top: 1px solid var(--glass-border);
+}
+
+.dwin-meta-item {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dwin-meta-persona {
+  color: var(--accent);
+}
+
+/* --- Live tab — temporary Terminal + Chat host until U3 --- */
+
+.live-tab {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.live-tab-terminal {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.live-tab-chat {
+  width: 400px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--glass-border);
+  background: var(--bg-surface);
+  display: flex;
+  flex-direction: column;
 }
 
 .sessions-tab-status {

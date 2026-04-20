@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { SessionRecord } from '@shared/types';
 import { authedFetch } from '../auth';
 import { PaneCard } from './PaneCard';
+import type { LayoutMode } from './LayoutControls';
 
 /**
  * U2 — pane grid. Polls `/api/sessions` every 3s and renders one PaneCard
@@ -9,7 +10,11 @@ import { PaneCard } from './PaneCard';
  * Terminal+ChatPanel split as the Sessions-tab body.
  */
 
-export function PaneGrid() {
+interface PaneGridProps {
+  layout?: LayoutMode;
+}
+
+export function PaneGrid({ layout = 'tile' }: PaneGridProps) {
   const [sessions, setSessions] = useState<SessionRecord[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
@@ -62,7 +67,7 @@ export function PaneGrid() {
   }
 
   return (
-    <div className="pane-grid" role="list">
+    <div className={`pane-grid pane-grid-${layout}`} role="list">
       {sessions.map((s) => (
         <div role="listitem" key={s.sessionId} className="pane-grid-cell">
           <PaneCard

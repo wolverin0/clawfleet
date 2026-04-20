@@ -65,16 +65,24 @@ function buildSpawnLadder(cwd: string): SpawnAttempt[] {
   const ladder: SpawnAttempt[] = [];
 
   if (mode === 'claude') {
+    // Default to `claude --continue` so fresh boots resume the most
+    // recent session in the cwd. Opt-out with THEORCHESTRA_NO_CONTINUE=1.
+    const continueFlag = process.env.THEORCHESTRA_NO_CONTINUE === '1' ? [] : ['--continue'];
     if (isOnPath('claude')) {
       ladder.push({
-        label: 'claude (direct on PATH)',
-        opts: { cli: 'claude', args: [], cwd, tabTitle: 'claude' },
+        label: `claude (direct on PATH)${continueFlag.length ? ' --continue' : ''}`,
+        opts: { cli: 'claude', args: continueFlag, cwd, tabTitle: 'claude' },
       });
     }
     if (IS_WINDOWS) {
       ladder.push({
-        label: 'cmd.exe /c claude',
-        opts: { cli: 'cmd.exe', args: ['/c', 'claude'], cwd, tabTitle: 'claude' },
+        label: `cmd.exe /c claude${continueFlag.length ? ' --continue' : ''}`,
+        opts: {
+          cli: 'cmd.exe',
+          args: ['/c', 'claude', ...continueFlag],
+          cwd,
+          tabTitle: 'claude',
+        },
       });
     }
   }

@@ -3,19 +3,31 @@ import { useSseEvents, type SseEventAny } from '../useSseEvents';
 import { authedFetch } from '../auth';
 
 /**
- * U5 — handoff toast (30%) + enforce modal (50%) driven by SSE
- * `ctx_threshold` events. Each per-session event is deduped so the same
- * threshold doesn't stack repeatedly. User can dismiss a toast or fire
- * auto-handoff from the modal.
+ * Handoff UX tied to SSE `ctx_threshold` events:
+ *   - 40% crossing → dismissible toast ("suggest a handoff")
+ *   - 60% crossing → enforce modal ("critical — run auto-handoff")
+ *   - 70% crossing → info toast ("auto-handoff already running")
+ *
+ * Legacy 30/50 events are coerced to 40/60 so mid-flight SSE streams
+ * from older backends keep working during rollout.
  */
 
+type CrossedKind = 'suggest' | 'critical' | 'automatic';
 interface ThresholdAlert {
   sessionId: string;
   percent: number;
-  crossed: 30 | 50;
+  crossed: 40 | 60 | 70;
+  kind: CrossedKind;
   id: number;
   ts: string;
   dismissed?: boolean;
+}
+
+function classifyCrossed(raw: unknown): { crossed: 40 | 60 | 70; kind: CrossedKind } {
+  const n = Number(raw);
+  if (n >= 70) return { crossed: 70, kind: 'automatic' };
+  if (n >= 60 || n === 50) return { crossed: 60, kind: 'critical' };
+  return { crossed: 40, kind: 'suggest' };
 }
 
 export function HandoffAlerts() {
@@ -29,12 +41,13 @@ export function HandoffAlerts() {
     for (const ev of events) {
       if (ev.type !== 'ctx_threshold') continue;
       const sid = String(ev.sessionId ?? '');
-      const crossed = (ev.crossed === 50 ? 50 : 30) as 30 | 50;
+      const { crossed, kind } = classifyCrossed(ev.crossed);
       const key = `${sid}:${crossed}`;
       const next: ThresholdAlert = {
         sessionId: sid,
         percent: Number(ev.percent ?? 0),
         crossed,
+        kind,
         id: Number(ev.id ?? 0),
         ts: String(ev.ts ?? ''),
       };
@@ -77,8 +90,8 @@ export function HandoffAlerts() {
     }
   };
 
-  const toasts = alerts.filter((a) => a.crossed === 30);
-  const modals = alerts.filter((a) => a.crossed === 50);
+  const toasts = alerts.filter((a) => a.kind === 'suggest' || a.kind === 'automatic');
+  const modals = alerts.filter((a) => a.kind === 'critical');
 
   return (
     <>
@@ -92,8 +105,9 @@ export function HandoffAlerts() {
                 <div className="handoff-toast-head">
                   <span className="handoff-badge">Ctx {a.percent.toFixed(0)}%</span>
                   <span className="handoff-toast-body">
-                    pane {a.sessionId.slice(0, 8)}… is approaching ctx limit — consider a
-                    handoff soon.
+                    {a.kind === 'automatic'
+                      ? `pane ${a.sessionId.slice(0, 8)}… at ${a.percent.toFixed(0)}% — auto-handoff triggered (readiness check sent to pane).`
+                      : `pane ${a.sessionId.slice(0, 8)}… is approaching ctx limit — consider a handoff soon.`}
                   </span>
                   <button
                     type="button"
@@ -134,10 +148,12 @@ export function HandoffAlerts() {
                   <span>Pane {a.sessionId.slice(0, 8)}…</span>
                 </div>
                 <div className="handoff-modal-body">
-                  This pane has crossed the 50% ctx threshold. Continuing risks losing
-                  conversation state to auto-compaction. Recommended: trigger an auto-handoff
-                  now (writes a 7-section handoff file, clears the pane, and resumes from the
-                  handoff).
+                  This pane has crossed the 60% ctx threshold (critical). Continuing risks
+                  losing conversation state to auto-compaction. If you are mid-task, reply
+                  READY/NOT_READY in the pane — NOT_READY lets you finish the current step.
+                  Otherwise: trigger an auto-handoff (writes a handoff file, clears the pane,
+                  and resumes from the handoff). At 70% the dashboard will trigger
+                  auto-handoff itself.
                 </div>
                 <div className="handoff-modal-actions">
                   <button

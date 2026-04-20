@@ -23,6 +23,7 @@ import {
 } from '../src/backend/session-manifest.js';
 import { startOrchestrator } from '../src/backend/orchestrator/executor.js';
 import { attachFromEnv as attachMemoryMasterBridge } from '../src/backend/memorymaster-bridge.js';
+import { attachAutoHandoffWatchdog } from '../src/backend/auto-handoff-watchdog.js';
 import {
   TelegramPusher,
   configFromEnv as telegramConfigFromEnv,
@@ -206,6 +207,18 @@ async function main(): Promise<void> {
   // v3.0-native MemoryMaster bridge (opt-in via THEORCHESTRA_MEMORYMASTER_INBOX=1).
   // Writes high-signal events as JSONL lines to vault/_memorymaster/inbox.jsonl.
   attachMemoryMasterBridge(bus);
+
+  // Auto-handoff watchdog: when a pane hits ctx_threshold=70 (configurable
+  // AUTO_HANDOFF_AUTO_THRESHOLD is the emitter-side value; this watchdog
+  // listens for whatever crossed=70 fires), invoke runAutoHandoff which
+  // runs the READINESS CHECK first — NOT_READY keeps the pane going; READY
+  // writes the /handoff file and /clears.
+  attachAutoHandoffWatchdog(manager, bus, {
+    enabled: process.env.THEORCHESTRA_AUTO_HANDOFF_AT_70 !== '0',
+  });
+  console.log(
+    '[theorchestra] auto-handoff watchdog attached (fires at ctx=70% after READINESS CHECK)',
+  );
 
   console.log(
     `[theorchestra] listening on :${port}, default session ${defaultSession.sessionId}`,

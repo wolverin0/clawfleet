@@ -21,6 +21,7 @@ import { runAutoHandoff, type AutoHandoffTimeouts } from './auto-handoff.js';
 import { runA2aHandoff, listHandoffs } from './handoff-routes.js';
 import { PaneQueueStore } from './pane-queue.js';
 import { injectContext } from './inject-context.js';
+import { getLastCtxPercent } from './event-emitters/status-bar.js';
 import { listPersonas, resolvePersona } from './personas.js';
 import {
   addWorktree,
@@ -696,7 +697,8 @@ function makeHttpHandler(
           writeJson(res, 404, { error: 'session_not_found', session_id: match.sessionId });
           return;
         }
-        writeJson(res, 200, { ...detail, record });
+        const ctxPercent = getLastCtxPercent(match.sessionId);
+        writeJson(res, 200, { ...detail, ctxPercent, record });
         return;
       }
 

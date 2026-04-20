@@ -298,6 +298,7 @@ export class PtyManager extends EventEmitter {
       exitSignal: entry.exitSignal,
       lastOutputAt: entry.lastDataAt === null ? null : new Date(entry.lastDataAt).toISOString(),
       lastLines: this.renderedTail(id, 20),
+      ctxPercent: null, // populated by ws-server before returning to client
     };
   }
 

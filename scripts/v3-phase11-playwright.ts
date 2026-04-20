@@ -386,7 +386,7 @@ async function main(): Promise<void> {
       },
     },
     {
-      name: 'UI.11 ctx_threshold 30 fires handoff suggest toast',
+      name: 'UI.11 ctx_threshold 40 fires handoff suggest toast',
       run: async () => {
         await s.page.locator('nav[aria-label="Primary"] [role="button"]:has-text("Sessions")').click();
         const listRes = await fetch(`http://127.0.0.1:${s.port}/api/sessions`, {
@@ -398,7 +398,7 @@ async function main(): Promise<void> {
         await fetch(`http://127.0.0.1:${s.port}/api/_debug/publish`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.token}` },
-          body: JSON.stringify({ type: 'ctx_threshold', sessionId: sid, percent: 31, crossed: 30 }),
+          body: JSON.stringify({ type: 'ctx_threshold', sessionId: sid, percent: 41, crossed: 40 }),
         });
         await s.page.waitForSelector('.handoff-toast', { timeout: 5000 });
         await shot(s.page, '11-handoff-toast-30');
@@ -406,7 +406,7 @@ async function main(): Promise<void> {
       },
     },
     {
-      name: 'UI.12 ctx_threshold 50 fires handoff enforce modal',
+      name: 'UI.12 ctx_threshold 60 fires handoff enforce modal',
       run: async () => {
         const listRes = await fetch(`http://127.0.0.1:${s.port}/api/sessions`, {
           headers: { Authorization: `Bearer ${s.token}` },
@@ -417,7 +417,7 @@ async function main(): Promise<void> {
         await fetch(`http://127.0.0.1:${s.port}/api/_debug/publish`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.token}` },
-          body: JSON.stringify({ type: 'ctx_threshold', sessionId: sid, percent: 52, crossed: 50 }),
+          body: JSON.stringify({ type: 'ctx_threshold', sessionId: sid, percent: 62, crossed: 60 }),
         });
         await s.page.waitForSelector('.handoff-modal-backdrop, .handoff-modal', { timeout: 5000 });
         await shot(s.page, '12-handoff-modal-50');

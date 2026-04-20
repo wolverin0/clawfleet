@@ -57,6 +57,12 @@ export interface SessionStatusDetail {
   exitSignal: number | null;
   lastOutputAt: string | null;
   lastLines: string[];
+  /**
+   * Latest raw ctx% parsed from the status bar (0..100), or null if the TUI
+   * hasn't rendered a `Ctx: X%` line yet (fresh Claude, non-Claude pane).
+   * Source: `src/backend/event-emitters/status-bar.ts`.
+   */
+  ctxPercent: number | null;
 }
 
 /**
@@ -102,7 +108,13 @@ export type SseEvent =
       type: 'ctx_threshold';
       sessionId: SessionId;
       percent: number;
-      crossed: 30 | 50;
+      /**
+       * 40 = suggest (toast), 60 = critical (modal), 70 = automatic
+       * (backend auto-runs auto-handoff after the readiness gate). The
+       * older 30/50 thresholds are retained for compatibility with
+       * historical events — new emissions use 40/60/70.
+       */
+      crossed: 30 | 40 | 50 | 60 | 70;
     }
   | {
       id: number;

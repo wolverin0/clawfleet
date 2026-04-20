@@ -32,9 +32,11 @@ interface SessionScanState {
   timer: NodeJS.Timeout | null;
   lastState: LifecycleState;
   /** Highest Ctx threshold we have already emitted for (0 if none). */
-  lastCtxCrossed: 0 | 30 | 50;
+  lastCtxCrossed: 0 | 40 | 60 | 70;
   /** ms epoch of the last permission_prompt emission for throttling. */
   lastPermissionAt: number;
+  /** Last raw ctx% we parsed — exposed through the /status endpoint. */
+  lastCtxPercent: number | null;
 }
 
 function createState(): SessionScanState {
@@ -43,6 +45,7 @@ function createState(): SessionScanState {
     lastState: 'unknown',
     lastCtxCrossed: 0,
     lastPermissionAt: 0,
+    lastCtxPercent: null,
   };
 }
 
@@ -118,6 +121,16 @@ function findPermissionLine(lines: string[]): string | null {
   return null;
 }
 
+/**
+ * Module-scoped ctx% cache. Populated by the emitter's scan loop; read by
+ * the /status endpoint + the auto-handoff watchdog. Keyed by session id.
+ */
+const lastCtxPercentCache = new Map<SessionId, number>();
+
+export function getLastCtxPercent(sessionId: SessionId): number | null {
+  return lastCtxPercentCache.get(sessionId) ?? null;
+}
+
 export function attachStatusBarEmitter(manager: PtyManager, bus: EventBus): () => void {
   const states = new Map<SessionId, SessionScanState>();
 
@@ -139,39 +152,33 @@ export function attachStatusBarEmitter(manager: PtyManager, bus: EventBus): () =
       state.lastState = lifecycle;
     }
 
-    // --- ctx_threshold: upward crossings at 30 / 50 ---
+    // --- ctx_threshold: upward crossings at 40 (suggest) / 60 (critical) / 70 (automatic) ---
     const pct = detectCtxPercent(lines);
     if (pct !== null) {
-      if (pct < 30) {
+      state.lastCtxPercent = pct;
+      lastCtxPercentCache.set(sessionId, pct);
+      if (pct < 40) {
         // Panel compacted — reset so the next crossing re-fires.
         state.lastCtxCrossed = 0;
-      } else if (pct >= 50 && state.lastCtxCrossed < 50) {
-        if (state.lastCtxCrossed < 30) {
-          const payload30: PayloadOf<'ctx_threshold'> = {
-            type: 'ctx_threshold',
-            sessionId,
-            percent: pct,
-            crossed: 30,
-          };
-          bus.publish(payload30);
+      } else if (pct >= 70 && state.lastCtxCrossed < 70) {
+        // Backfill missed thresholds so listeners see them in order.
+        if (state.lastCtxCrossed < 40) {
+          bus.publish({ type: 'ctx_threshold', sessionId, percent: pct, crossed: 40 });
         }
-        const payload50: PayloadOf<'ctx_threshold'> = {
-          type: 'ctx_threshold',
-          sessionId,
-          percent: pct,
-          crossed: 50,
-        };
-        bus.publish(payload50);
-        state.lastCtxCrossed = 50;
-      } else if (pct >= 30 && state.lastCtxCrossed < 30) {
-        const payload: PayloadOf<'ctx_threshold'> = {
-          type: 'ctx_threshold',
-          sessionId,
-          percent: pct,
-          crossed: 30,
-        };
-        bus.publish(payload);
-        state.lastCtxCrossed = 30;
+        if (state.lastCtxCrossed < 60) {
+          bus.publish({ type: 'ctx_threshold', sessionId, percent: pct, crossed: 60 });
+        }
+        bus.publish({ type: 'ctx_threshold', sessionId, percent: pct, crossed: 70 });
+        state.lastCtxCrossed = 70;
+      } else if (pct >= 60 && state.lastCtxCrossed < 60) {
+        if (state.lastCtxCrossed < 40) {
+          bus.publish({ type: 'ctx_threshold', sessionId, percent: pct, crossed: 40 });
+        }
+        bus.publish({ type: 'ctx_threshold', sessionId, percent: pct, crossed: 60 });
+        state.lastCtxCrossed = 60;
+      } else if (pct >= 40 && state.lastCtxCrossed < 40) {
+        bus.publish({ type: 'ctx_threshold', sessionId, percent: pct, crossed: 40 });
+        state.lastCtxCrossed = 40;
       }
     }
 

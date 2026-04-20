@@ -1549,10 +1549,33 @@ body,
 
 /* --- Desktop tab: floating draggable windows (v2.7 parity) --- */
 
+.desktop-wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.desktop-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--glass-border);
+  background: var(--bg-surface);
+  flex-shrink: 0;
+}
+
+.desktop-toolbar-hint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
 .desktop-area {
   position: relative;
   width: 100%;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   overflow: auto;
   background:
     radial-gradient(circle at 1px 1px, oklch(0.22 0.01 270 / 0.6) 1px, transparent 1px);

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { SessionRecord } from '@shared/types';
 import { authedFetch } from '../auth';
 import { PaneCard } from './PaneCard';
+import { LayoutControls, type LayoutMode } from './LayoutControls';
 
 /**
  * Desktop tab — v2.7 parity floating-window layout.
@@ -56,12 +57,101 @@ function cascadeDefault(index: number): WinState {
   };
 }
 
+/**
+ * Auto-arrange helpers — compute per-window positions for each layout
+ * mode given the viewport size and the session count. Callers merge
+ * these into the existing `wins` map (preserving z) and persist.
+ */
+const GAP = 12;
+const MARGIN = 20;
+
+function arrangeTile(count: number, viewW: number, viewH: number): WinState[] {
+  if (count === 0) return [];
+  const cols = count <= 2 ? count : Math.ceil(Math.sqrt(count));
+  const rows = Math.ceil(count / cols);
+  const w = Math.max(MIN_W, Math.floor((viewW - MARGIN * 2 - GAP * (cols - 1)) / cols));
+  const h = Math.max(MIN_H, Math.floor((viewH - MARGIN * 2 - GAP * (rows - 1)) / rows));
+  return Array.from({ length: count }, (_, i) => {
+    const c = i % cols;
+    const r = Math.floor(i / cols);
+    return {
+      x: MARGIN + c * (w + GAP),
+      y: MARGIN + r * (h + GAP),
+      w,
+      h,
+      z: 0,
+    };
+  });
+}
+
+function arrangeCascade(count: number): WinState[] {
+  return Array.from({ length: count }, (_, i) => ({
+    x: MARGIN + i * 40,
+    y: MARGIN + i * 32,
+    w: DEFAULT_W,
+    h: DEFAULT_H,
+    z: 0,
+  }));
+}
+
+function arrangeStack(count: number, viewW: number, viewH: number): WinState[] {
+  if (count === 0) return [];
+  const w = Math.max(MIN_W, viewW - MARGIN * 2);
+  const h = Math.max(MIN_H, Math.floor((viewH - MARGIN * 2 - GAP * (count - 1)) / count));
+  return Array.from({ length: count }, (_, i) => ({
+    x: MARGIN,
+    y: MARGIN + i * (h + GAP),
+    w,
+    h,
+    z: 0,
+  }));
+}
+
+function arrangeShowAll(count: number, viewW: number, viewH: number): WinState[] {
+  if (count === 0) return [];
+  const cols = Math.min(count, 3);
+  const rows = Math.ceil(count / cols);
+  const w = Math.max(MIN_W, Math.floor((viewW - MARGIN * 2 - GAP * (cols - 1)) / cols));
+  const h = Math.max(MIN_H, Math.floor((viewH - MARGIN * 2 - GAP * (rows - 1)) / rows));
+  return Array.from({ length: count }, (_, i) => {
+    const c = i % cols;
+    const r = Math.floor(i / cols);
+    return {
+      x: MARGIN + c * (w + GAP),
+      y: MARGIN + r * (h + GAP),
+      w,
+      h,
+      z: 0,
+    };
+  });
+}
+
+function arrangeFor(
+  mode: LayoutMode,
+  count: number,
+  viewW: number,
+  viewH: number,
+): WinState[] {
+  switch (mode) {
+    case 'tile':
+      return arrangeTile(count, viewW, viewH);
+    case 'cascade':
+      return arrangeCascade(count);
+    case 'stack':
+      return arrangeStack(count, viewW, viewH);
+    case 'show-all':
+      return arrangeShowAll(count, viewW, viewH);
+  }
+}
+
 export function DesktopTab() {
   const [sessions, setSessions] = useState<SessionRecord[]>([]);
   const [wins, setWins] = useState<Record<string, WinState>>(loadWinState);
   const topZ = useRef<number>(
     Math.max(1, ...Object.values(loadWinState()).map((w) => w.z)),
   );
+  const [layout, setLayout] = useState<LayoutMode>('tile');
+  const areaRef = useRef<HTMLDivElement | null>(null);
   const cancelledRef = useRef(false);
 
   useEffect(() => {
@@ -178,14 +268,50 @@ export function DesktopTab() {
     setSessions((prev) => prev);
   };
 
+  /** Auto-arrange — overwrite x/y/w/h for every live session, keep z. */
+  const applyLayout = (mode: LayoutMode): void => {
+    setLayout(mode);
+    const area = areaRef.current;
+    const viewW = area?.clientWidth ?? 1200;
+    const viewH = area?.clientHeight ?? 800;
+    const positions = arrangeFor(mode, sessions.length, viewW, viewH);
+    setWins((prev) => {
+      const next: Record<string, WinState> = { ...prev };
+      sessions.forEach((s, i) => {
+        const p = positions[i];
+        if (!p) return;
+        const existing = next[s.sessionId];
+        next[s.sessionId] = {
+          ...p,
+          // Cascade z's bottom-to-top so later windows sit on top;
+          // other modes keep whatever z each window already has.
+          z: mode === 'cascade' ? 1 + i : existing?.z ?? 1 + i,
+        };
+      });
+      if (mode === 'cascade') {
+        topZ.current = sessions.length;
+      }
+      saveWinState(next);
+      return next;
+    });
+  };
+
   return (
-    <div className="desktop-area">
-      {sessions.length === 0 && (
-        <div className="desktop-empty">
-          No sessions yet. Use Spawn to open a pane — it will appear here as a
-          floating window you can drag and resize.
-        </div>
-      )}
+    <div className="desktop-wrap">
+      <div className="desktop-toolbar">
+        <LayoutControls mode={layout} onChange={applyLayout} />
+        <span className="desktop-toolbar-hint">
+          Auto-arrange the {sessions.length} floating window{sessions.length === 1 ? '' : 's'} — you
+          can still drag and resize after.
+        </span>
+      </div>
+      <div className="desktop-area" ref={areaRef}>
+        {sessions.length === 0 && (
+          <div className="desktop-empty">
+            No sessions yet. Use Spawn to open a pane — it will appear here as a
+            floating window you can drag and resize.
+          </div>
+        )}
       {sessions.map((s) => {
         const w = wins[s.sessionId];
         if (!w) return null;
@@ -227,6 +353,7 @@ export function DesktopTab() {
           </div>
         );
       })}
+      </div>
     </div>
   );
 }

@@ -627,6 +627,105 @@ async function main(): Promise<void> {
       },
     },
     {
+      name: 'UI.20 Queue endpoint: enqueue + pane_idle drains + GET snapshot reflects',
+      run: async () => {
+        const listRes = await fetch(`http://127.0.0.1:${s.port}/api/sessions`, {
+          headers: { Authorization: `Bearer ${s.token}` },
+        });
+        const list = (await listRes.json()) as Array<{ sessionId: string }>;
+        const sid = list[0]?.sessionId;
+        if (!sid) throw new Error('no session for queue test');
+
+        const probe = `pw-queue-probe-${Math.random().toString(36).slice(2, 8)}`;
+        const enq = await fetch(`http://127.0.0.1:${s.port}/api/sessions/${sid}/queue`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.token}` },
+          body: JSON.stringify({ text: `echo ${probe}` }),
+        });
+        if (!enq.ok) throw new Error(`queue enqueue HTTP ${enq.status}`);
+        const snap1 = (await enq.json()) as { pending: unknown[] };
+        if (snap1.pending.length < 1) throw new Error('pending array empty after enqueue');
+
+        // Force drain (the HTTP contract exposes this; in real life pane_idle fires).
+        const drainRes = await fetch(`http://127.0.0.1:${s.port}/api/sessions/${sid}/queue`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.token}` },
+          body: JSON.stringify({ drain: true }),
+        });
+        if (!drainRes.ok) throw new Error(`queue drain HTTP ${drainRes.status}`);
+        const drained = (await drainRes.json()) as { drained: { text: string } | null };
+        if (!drained.drained || !drained.drained.text.includes(probe)) {
+          throw new Error(`drained payload unexpected: ${JSON.stringify(drained)}`);
+        }
+
+        // Output polling — probe should land in the pane.
+        const start = Date.now();
+        let seen = false;
+        while (Date.now() - start < 8000) {
+          const r = await fetch(
+            `http://127.0.0.1:${s.port}/api/sessions/${sid}/output?lines=40`,
+            { headers: { Authorization: `Bearer ${s.token}` } },
+          );
+          const body = (await r.json()) as { lines: string[] };
+          if (body.lines.some((l) => l.includes(probe))) {
+            seen = true;
+            break;
+          }
+          await wait(300);
+        }
+        if (!seen) throw new Error('drained queue text did not reach pane output');
+
+        return `enqueue + drain round-trip OK (probe=${probe})`;
+      },
+    },
+    {
+      name: 'UI.21 Inject-context gathers peer tails + delivers to target',
+      run: async () => {
+        const listRes = await fetch(`http://127.0.0.1:${s.port}/api/sessions`, {
+          headers: { Authorization: `Bearer ${s.token}` },
+        });
+        const list = (await listRes.json()) as Array<{ sessionId: string; tabTitle: string }>;
+        if (list.length < 2) throw new Error('need ≥2 panes for inject-context test');
+        const target = list[0]!;
+        const sources = list.slice(1).map((x) => x.sessionId);
+
+        const res = await fetch(
+          `http://127.0.0.1:${s.port}/api/sessions/${target.sessionId}/inject-context`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.token}` },
+            body: JSON.stringify({ source_session_ids: sources, lines: 10 }),
+          },
+        );
+        if (!res.ok) throw new Error(`inject-context HTTP ${res.status}`);
+        const body = (await res.json()) as {
+          bytes_written: number;
+          sources: Array<{ lines_included: number }>;
+        };
+        if (body.bytes_written < 1 || body.sources.length !== sources.length) {
+          throw new Error(`unexpected body: ${JSON.stringify(body)}`);
+        }
+
+        // The target pane should see the "[End of context." marker land.
+        const start = Date.now();
+        let seen = false;
+        while (Date.now() - start < 8000) {
+          const r = await fetch(
+            `http://127.0.0.1:${s.port}/api/sessions/${target.sessionId}/output?lines=80`,
+            { headers: { Authorization: `Bearer ${s.token}` } },
+          );
+          const out = (await r.json()) as { lines: string[] };
+          if (out.lines.some((l) => l.includes('[End of context.'))) {
+            seen = true;
+            break;
+          }
+          await wait(300);
+        }
+        if (!seen) throw new Error('context block did not land in target output');
+        return `injected ${body.bytes_written}B from ${body.sources.length} source(s)`;
+      },
+    },
+    {
       name: 'UI.14 MemoryMaster bridge writes ctx_threshold event to inbox.jsonl',
       run: async () => {
         const inboxFile = path.join(s.tmpDir, '_memorymaster', 'inbox.jsonl');

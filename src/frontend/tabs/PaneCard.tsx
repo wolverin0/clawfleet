@@ -83,6 +83,12 @@ export function PaneCard({ session, peerSessions, active, onSelect, onKill }: Pa
   const [err, setErr] = useState<string | null>(null);
   const [handoffOpen, setHandoffOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [ctxOpen, setCtxOpen] = useState(false);
+  const [ctxSources, setCtxSources] = useState<Set<string>>(new Set());
+  const [ctxLines, setCtxLines] = useState(40);
+  const [queueOpen, setQueueOpen] = useState(false);
+  const [queueSnapshot, setQueueSnapshot] = useState<{ pending: Array<{ text: string; enqueued_at: string }>; last_drained_at: string | null } | null>(null);
+  const [queueDraft, setQueueDraft] = useState('');
   const [handoffTarget, setHandoffTarget] = useState<string>('');
   const [handoffInstr, setHandoffInstr] = useState('');
   const [history, setHistory] = useState<HandoffEntry[] | null>(null);
@@ -199,6 +205,83 @@ export function PaneCard({ session, peerSessions, active, onSelect, onKill }: Pa
       setHistory(body.handoffs);
     } catch {
       setHistory([]);
+    }
+  };
+
+  const handleOpenQueue = async (): Promise<void> => {
+    setQueueOpen(true);
+    try {
+      const res = await authedFetch(
+        `/api/sessions/${encodeURIComponent(session.sessionId)}/queue`,
+      );
+      if (res.ok) setQueueSnapshot(await res.json());
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const handleQueueEnqueue = async (): Promise<void> => {
+    const text = queueDraft.trim() || promptText.trim();
+    if (!text) return;
+    try {
+      const res = await authedFetch(
+        `/api/sessions/${encodeURIComponent(session.sessionId)}/queue`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text }),
+        },
+      );
+      if (res.ok) {
+        const snap = await res.json();
+        setQueueSnapshot(snap);
+        setQueueDraft('');
+        setFlash(`Q+ enqueued (${snap.pending.length} waiting)`);
+      } else {
+        setFlash(`Q+ failed: HTTP ${res.status}`);
+      }
+    } catch (e2) {
+      setFlash(`Q+ error: ${e2 instanceof Error ? e2.message : String(e2)}`);
+    }
+  };
+
+  const handleQueueClear = async (): Promise<void> => {
+    try {
+      const res = await authedFetch(
+        `/api/sessions/${encodeURIComponent(session.sessionId)}/queue`,
+        { method: 'DELETE' },
+      );
+      if (res.ok) setQueueSnapshot(await res.json());
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const handleCtxInject = async (): Promise<void> => {
+    const ids = Array.from(ctxSources);
+    if (ids.length === 0) {
+      setFlash('Ctx: pick at least one source pane');
+      return;
+    }
+    try {
+      const res = await authedFetch(
+        `/api/sessions/${encodeURIComponent(session.sessionId)}/inject-context`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ source_session_ids: ids, lines: ctxLines }),
+        },
+      );
+      if (res.ok) {
+        const body = (await res.json()) as { bytes_written: number; sources: unknown[] };
+        setFlash(`Ctx injected ${body.sources.length} source(s), ${body.bytes_written}B`);
+        setCtxOpen(false);
+        setCtxSources(new Set());
+      } else {
+        setFlash(`Ctx failed: HTTP ${res.status}`);
+      }
+    } catch (e2) {
+      setFlash(`Ctx error: ${e2 instanceof Error ? e2.message : String(e2)}`);
     }
   };
 
@@ -386,6 +469,107 @@ export function PaneCard({ session, peerSessions, active, onSelect, onKill }: Pa
         </div>
       )}
 
+      {queueOpen && (
+        <div
+          className="dwin-handoff-popover"
+          onClick={(e) => e.stopPropagation()}
+          role="dialog"
+          aria-label="Queue"
+        >
+          <div className="dwin-handoff-title">Queue for {name}</div>
+          {queueSnapshot === null && <div className="dwin-history-empty">loading…</div>}
+          {queueSnapshot !== null && queueSnapshot.pending.length === 0 && (
+            <div className="dwin-history-empty">(queue empty)</div>
+          )}
+          {queueSnapshot?.pending.map((e, i) => (
+            <div className="dwin-history-entry" key={`${e.enqueued_at}-${i}`}>
+              <div className="dwin-history-filename">#{i + 1}: {e.text}</div>
+              <div className="dwin-history-meta">enqueued {e.enqueued_at}</div>
+            </div>
+          ))}
+          <textarea
+            aria-label="Queue new prompt"
+            placeholder="New queued prompt…"
+            value={queueDraft}
+            onChange={(e) => setQueueDraft(e.target.value)}
+            rows={2}
+          />
+          <div className="dwin-handoff-actions">
+            <button type="button" className="dwin-btn" onClick={() => setQueueOpen(false)}>
+              Close
+            </button>
+            <button type="button" className="dwin-btn" onClick={() => void handleQueueClear()}>
+              Clear
+            </button>
+            <button
+              type="button"
+              className="dwin-btn dwin-btn-primary"
+              disabled={!queueDraft.trim() && !promptText.trim()}
+              onClick={() => void handleQueueEnqueue()}
+            >
+              Enqueue
+            </button>
+          </div>
+        </div>
+      )}
+
+      {ctxOpen && (
+        <div
+          className="dwin-handoff-popover"
+          onClick={(e) => e.stopPropagation()}
+          role="dialog"
+          aria-label="Inject context"
+        >
+          <div className="dwin-handoff-title">Inject context into {name}</div>
+          {peers.length === 0 && (
+            <div className="dwin-history-empty">(no other panes to source from)</div>
+          )}
+          {peers.map((p) => {
+            const checked = ctxSources.has(p.sessionId);
+            return (
+              <label className="dwin-ctx-peer" key={p.sessionId}>
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(e) => {
+                    const next = new Set(ctxSources);
+                    if (e.target.checked) next.add(p.sessionId);
+                    else next.delete(p.sessionId);
+                    setCtxSources(next);
+                  }}
+                />{' '}
+                {projectName(p.cwd, p.tabTitle)} ({shortId(p.sessionId)})
+              </label>
+            );
+          })}
+          <label className="dwin-ctx-lines">
+            Last{' '}
+            <input
+              type="number"
+              min={5}
+              max={200}
+              value={ctxLines}
+              onChange={(e) => setCtxLines(Number(e.target.value) || 40)}
+              aria-label="Lines per source"
+            />{' '}
+            rendered lines per source
+          </label>
+          <div className="dwin-handoff-actions">
+            <button type="button" className="dwin-btn" onClick={() => setCtxOpen(false)}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="dwin-btn dwin-btn-primary"
+              disabled={ctxSources.size === 0}
+              onClick={() => void handleCtxInject()}
+            >
+              Inject
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="dwin-body" ref={bodyRef}>
         {lines.length === 0 ? (
           <div className="dwin-body-empty">(no output yet)</div>
@@ -434,18 +618,18 @@ export function PaneCard({ session, peerSessions, active, onSelect, onKill }: Pa
         <button
           type="button"
           className="dwin-btn dwin-btn-q"
-          title="Add to queue — drains when pane goes idle (placeholder, v3.0 wiring pending)"
+          title="Add prompt to queue — drains on pane_idle"
           aria-label="Queue prompt"
-          onClick={() => setFlash('Q+ queue not wired yet (v3.0 TODO)')}
+          onClick={() => void handleOpenQueue()}
         >
           Q+
         </button>
         <button
           type="button"
           className="dwin-btn dwin-btn-ctx"
-          title="Inject context from other panes (placeholder, v3.0 wiring pending)"
+          title="Inject context from peer panes"
           aria-label="Inject context"
-          onClick={() => setFlash('Ctx inject not wired yet (v3.0 TODO)')}
+          onClick={() => setCtxOpen((v) => !v)}
         >
           Ctx
         </button>

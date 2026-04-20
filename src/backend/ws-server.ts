@@ -19,6 +19,8 @@ import { PtyManager, type PtyDataEvent, type PtyExitEvent } from './pty-manager.
 import { EventBus, writeSseEvent, writeSseHeaders } from './events.js';
 import { runAutoHandoff, type AutoHandoffTimeouts } from './auto-handoff.js';
 import { runA2aHandoff, listHandoffs } from './handoff-routes.js';
+import { PaneQueueStore } from './pane-queue.js';
+import { injectContext } from './inject-context.js';
 import { listPersonas, resolvePersona } from './personas.js';
 import {
   addWorktree,
@@ -227,6 +229,7 @@ function makeHttpHandler(
   bus: EventBus,
   getChat: () => ChatStore | null,
   auth: AuthStore | null,
+  queueStore: PaneQueueStore,
 ) {
   return async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
     const method = req.method ?? 'GET';
@@ -755,6 +758,50 @@ function makeHttpHandler(
         return;
       }
 
+      // GET/POST/DELETE /api/sessions/:id/queue — per-pane prompt queue (Q+).
+      if (match.suffix === 'queue') {
+        if (method === 'GET') {
+          writeJson(res, 200, queueStore.snapshot(match.sessionId));
+          return;
+        }
+        if (method === 'POST') {
+          try {
+            const body = (await readJsonBody(req)) as { text?: unknown; drain?: unknown };
+            if (body.drain === true) {
+              const drained = queueStore.drainOne(manager, match.sessionId);
+              writeJson(res, 200, { drained, snapshot: queueStore.snapshot(match.sessionId) });
+              return;
+            }
+            const text = typeof body.text === 'string' ? body.text : '';
+            const snap = queueStore.enqueue(match.sessionId, text);
+            writeJson(res, 201, snap);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            writeJson(res, 400, { error: 'queue_enqueue_failed', detail: msg });
+          }
+          return;
+        }
+        if (method === 'DELETE') {
+          writeJson(res, 200, queueStore.clear(match.sessionId));
+          return;
+        }
+      }
+
+      // POST /api/sessions/:id/inject-context — gather rendered tails from
+      // other live panes and send as a single prompt.
+      if (method === 'POST' && match.suffix === 'inject-context') {
+        try {
+          const body = (await readJsonBody(req)) as Record<string, unknown>;
+          const result = injectContext(manager, match.sessionId, body);
+          writeJson(res, 200, result);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          const code = /required|not found/i.test(msg) ? 400 : 500;
+          writeJson(res, code, { error: 'inject_context_failed', detail: msg });
+        }
+        return;
+      }
+
       // POST /api/sessions/:id/auto-handoff  {focus?, force?, timeouts?}  — Phase 4
       if (method === 'POST' && match.suffix === 'auto-handoff') {
         try {
@@ -946,6 +993,7 @@ export interface StartServerOptions {
   bus?: EventBus;
   chat?: ChatStore;
   auth?: AuthStore;
+  queueStore?: PaneQueueStore;
 }
 
 export async function startServer(
@@ -963,7 +1011,11 @@ export async function startServer(
   const setChat = (c: ChatStore): void => {
     chatRef = c;
   };
-  const server = http.createServer(makeHttpHandler(manager, bus, () => chatRef, auth));
+  const queueStore = opts.queueStore ?? new PaneQueueStore();
+  queueStore.attach(bus, manager);
+  const server = http.createServer(
+    makeHttpHandler(manager, bus, () => chatRef, auth, queueStore),
+  );
   const wss = new WebSocketServer({ noServer: true });
 
   server.on('upgrade', (req, socket, head) => {

@@ -1692,6 +1692,38 @@ body,
   background: oklch(0.7 0.15 80 / 0.2);
 }
 
+.dwin-ctx-peer {
+  display: block;
+  font-size: 11px;
+  color: var(--text-primary);
+  padding: 3px 2px;
+  border-radius: 3px;
+}
+
+.dwin-ctx-peer:hover {
+  background: var(--bg-hover);
+}
+
+.dwin-ctx-lines {
+  font-size: 11px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.dwin-ctx-lines input {
+  width: 56px;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  border: 1px solid var(--glass-border);
+  border-radius: 3px;
+  padding: 2px 4px;
+  font-family: inherit;
+  font-size: 11px;
+}
+
 .dwin-flash {
   padding: 4px 10px;
   font-size: 10px;

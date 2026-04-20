@@ -8,6 +8,16 @@ logs/
 .claude-flow/
 .memory-bridge-hashes.json
 
+# Ephemeral dogfood artefacts
+test-workspace/_sessions/
+test-workspace/_decisions/
+test-workspace/token.json
+test-workspace/orch-cfg.md
+test-workspace/active_tasks.md
+test-workspace/boot*.log
+test-workspace/auto-handoff-result.json
+test-workspace/mm-inbox.jsonl
+
 # Runtime / local state (don't ship)
 .events.json
 vault/

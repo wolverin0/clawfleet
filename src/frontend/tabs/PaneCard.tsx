@@ -25,6 +25,15 @@ interface StatusDetail {
   lastLines: string[];
   exitCode: number | null;
   lastOutputAt: string | null;
+  ctxPercent: number | null;
+}
+
+function ctxTier(pct: number): 'low' | 'normal' | 'warn' | 'high' | 'critical' {
+  if (pct >= 70) return 'critical';
+  if (pct >= 60) return 'high';
+  if (pct >= 40) return 'warn';
+  if (pct >= 20) return 'normal';
+  return 'low';
 }
 
 interface HandoffEntry {
@@ -257,6 +266,34 @@ export function PaneCard({ session, peerSessions, active, onSelect, onKill }: Pa
     }
   };
 
+  const handleQueueAdvanceNext = async (): Promise<void> => {
+    try {
+      const res = await authedFetch(
+        `/api/sessions/${encodeURIComponent(session.sessionId)}/queue`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ drain: true }),
+        },
+      );
+      if (res.ok) {
+        const body = (await res.json()) as {
+          drained: { text: string } | null;
+          snapshot: {
+            pending: Array<{ text: string; enqueued_at: string }>;
+            last_drained_at: string | null;
+          };
+        };
+        setQueueSnapshot(body.snapshot);
+        setFlash(
+          body.drained ? `Q+ drained: ${body.drained.text.slice(0, 40)}` : 'Q+ nothing to drain',
+        );
+      }
+    } catch (e2) {
+      setFlash(`Q+ drain error: ${e2 instanceof Error ? e2.message : String(e2)}`);
+    }
+  };
+
   const handleCtxInject = async (): Promise<void> => {
     const ids = Array.from(ctxSources);
     if (ids.length === 0) {
@@ -333,6 +370,14 @@ export function PaneCard({ session, peerSessions, active, onSelect, onKill }: Pa
         >
           {statusLabel}
         </span>
+        {detail?.ctxPercent != null && (
+          <span
+            className={`ctx-badge ctx-${ctxTier(detail.ctxPercent)}`}
+            title={`context budget used: ${detail.ctxPercent.toFixed(1)}%`}
+          >
+            {Math.round(detail.ctxPercent)}%
+          </span>
+        )}
         {session.persona && (
           <span className="dwin-persona" title={`persona: ${session.persona}`}>
             {session.persona}
@@ -477,6 +522,9 @@ export function PaneCard({ session, peerSessions, active, onSelect, onKill }: Pa
           aria-label="Queue"
         >
           <div className="dwin-handoff-title">Queue for {name}</div>
+          {queueSnapshot?.last_drained_at && (
+            <div className="dwin-history-meta">last drained: {queueSnapshot.last_drained_at}</div>
+          )}
           {queueSnapshot === null && <div className="dwin-history-empty">loading…</div>}
           {queueSnapshot !== null && queueSnapshot.pending.length === 0 && (
             <div className="dwin-history-empty">(queue empty)</div>
@@ -500,6 +548,15 @@ export function PaneCard({ session, peerSessions, active, onSelect, onKill }: Pa
             </button>
             <button type="button" className="dwin-btn" onClick={() => void handleQueueClear()}>
               Clear
+            </button>
+            <button
+              type="button"
+              className="dwin-btn"
+              disabled={!queueSnapshot || queueSnapshot.pending.length === 0}
+              onClick={() => void handleQueueAdvanceNext()}
+              title="Drain the head entry now (normally fires on pane_idle)"
+            >
+              Advance ▶
             </button>
             <button
               type="button"

@@ -1515,6 +1515,21 @@ body,
   background: oklch(0.65 0.22 25 / 0.25);
 }
 
+.ctx-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 10px;
+  letter-spacing: 0.3px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ctx-badge.ctx-low { background: oklch(0.22 0.04 195); color: oklch(0.78 0.12 195); border: 1px solid oklch(0.40 0.1 195 / 0.4); }
+.ctx-badge.ctx-normal { background: oklch(0.22 0.04 145); color: oklch(0.78 0.15 145); border: 1px solid oklch(0.45 0.1 145 / 0.4); }
+.ctx-badge.ctx-warn { background: oklch(0.25 0.05 80); color: oklch(0.82 0.18 80); border: 1px solid oklch(0.5 0.15 80 / 0.4); }
+.ctx-badge.ctx-high { background: oklch(0.26 0.07 45); color: oklch(0.80 0.2 45); border: 1px solid oklch(0.55 0.2 45 / 0.5); }
+.ctx-badge.ctx-critical { background: oklch(0.28 0.1 25); color: oklch(0.80 0.24 25); border: 1px solid oklch(0.58 0.24 25 / 0.6); }
+
 .dwin-persona {
   font-size: 10px;
   padding: 1px 6px;

@@ -16,6 +16,14 @@ import * as path from 'node:path';
 
 import type { PtyManager } from './pty-manager.js';
 
+/**
+ * ConPTY input-buffer truncation threshold. Observed in dogfood 2026-04-20:
+ * writing a ~2 KB handoff prompt directly to the pty corrupts the draft
+ * buffer — Claude's TUI sees the tail and loses the middle. Anything above
+ * this size is staged to a file and Claude is told to `Read()` it.
+ */
+const PROMPT_STAGE_THRESHOLD = 900;
+
 function slugify(s: string): string {
   return (
     String(s || 'unknown')
@@ -125,10 +133,28 @@ export function runA2aHandoff(
       `Do not do the target's work yourself. Your job is only to author the handoff file and delegate via MCP.`,
     ].join('\n');
 
-  // A2A hard rule: send_prompt then send_key('enter') — bundling `\r` into
-  // the prompt write lets Claude's TUI absorb it as a newline in the draft.
-  // `writeAndSubmit` flushes then sends Enter as a separate keystroke.
-  void manager.writeAndSubmit(sourceId, prompt);
+  // ConPTY truncates large single writes. Stage the prompt to a file on
+  // the source pane's cwd and send a SHORT pointer instead. Verified in
+  // live dogfood 2026-04-20 where the original 2 KB prompt arrived
+  // corrupted ("Create a file calle..." tail-spliced onto the MCP example).
+  let sentToPane: string;
+  if (prompt.length > PROMPT_STAGE_THRESHOLD) {
+    const stagePath = path.join(
+      src.cwd.replace(/\//g, path.sep),
+      '.theorchestra-stage',
+      `handoff-request-${corrShort}.md`,
+    );
+    fs.mkdirSync(path.dirname(stagePath), { recursive: true });
+    fs.writeFileSync(stagePath, prompt, 'utf8');
+    sentToPane =
+      `[Dashboard A2A Handoff Request — staged]\n\n` +
+      `Read the full request at \`.theorchestra-stage/handoff-request-${corrShort}.md\` ` +
+      `in your cwd, then follow its 3 numbered steps (author handoff file, contact ` +
+      `target via mcp__wezbridge__send_prompt + send_key, briefly acknowledge). corr=${corr}.`;
+  } else {
+    sentToPane = prompt;
+  }
+  void manager.writeAndSubmit(sourceId, sentToPane);
 
   return {
     ok: true,

@@ -3,7 +3,11 @@
     "wezbridge": {
       "type": "stdio",
       "command": "node",
-      "args": ["./src/mcp-server.cjs"]
+      "args": ["G:/_OneDrive/OneDrive/Desktop/Py Apps/wezbridge/bin/theorchestra-mcp.js"],
+      "env": {
+        "THEORCHESTRA_PORT": "4800",
+        "THEORCHESTRA_TOKEN_FILE": "G:/_OneDrive/OneDrive/Desktop/Py Apps/wezbridge/test-workspace/token.json"
+      }
     }
   }
 }

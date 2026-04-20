@@ -32,12 +32,35 @@ function resolveBaseUrl(opts: BackendClientOptions | undefined): string {
   if (process.env.THEORCHESTRA_BACKEND_URL) {
     return process.env.THEORCHESTRA_BACKEND_URL.replace(/\/$/, '');
   }
+  if (process.env.THEORCHESTRA_PORT) {
+    return `http://127.0.0.1:${process.env.THEORCHESTRA_PORT}`;
+  }
   return DEFAULT_BASE_URL;
+}
+
+function readTokenFile(): string | null {
+  try {
+    // Lazy require so edge cases (bundled build w/o fs) still boot.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fs = require('node:fs') as typeof import('node:fs');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const path = require('node:path') as typeof import('node:path');
+    const file =
+      process.env.THEORCHESTRA_TOKEN_FILE ??
+      path.resolve(process.cwd(), 'vault', '_auth', 'token.json');
+    if (!fs.existsSync(file)) return null;
+    const raw = fs.readFileSync(file, 'utf-8');
+    const parsed = JSON.parse(raw) as { token?: string };
+    return typeof parsed.token === 'string' && parsed.token.length > 0 ? parsed.token : null;
+  } catch {
+    return null;
+  }
 }
 
 function resolveToken(opts: BackendClientOptions | undefined): string | null {
   if (opts?.token !== undefined) return opts.token;
-  return process.env.THEORCHESTRA_TOKEN ?? null;
+  if (process.env.THEORCHESTRA_TOKEN) return process.env.THEORCHESTRA_TOKEN;
+  return readTokenFile();
 }
 
 async function request<T>(

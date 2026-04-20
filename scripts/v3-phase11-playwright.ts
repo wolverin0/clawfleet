@@ -89,6 +89,7 @@ async function setupSuite(): Promise<Suite> {
       THEORCHESTRA_DECISIONS_DIR: path.join(tmpDir, '_orchestrator'),
       THEORCHESTRA_CONFIG_FILE: path.join(tmpDir, '.no-config.md'),
       THEORCHESTRA_TASKS_FILE: path.join(tmpDir, '.no-tasks.md'),
+      THEORCHESTRA_DEBUG_EVENTS: '1',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -309,6 +310,48 @@ async function main(): Promise<void> {
         );
         await shot(s.page, '08-after-refresh');
         return 'refresh preserves state';
+      },
+    },
+    {
+      name: 'UI.11 ctx_threshold 30 fires handoff suggest toast',
+      run: async () => {
+        await s.page.locator('nav[aria-label="Primary"] [role="button"]:has-text("Sessions")').click();
+        const listRes = await fetch(`http://127.0.0.1:${s.port}/api/sessions`, {
+          headers: { Authorization: `Bearer ${s.token}` },
+        });
+        const list = (await listRes.json()) as Array<{ sessionId: string }>;
+        const sid = list[0]?.sessionId;
+        if (!sid) throw new Error('no session for ctx_threshold test');
+        await fetch(`http://127.0.0.1:${s.port}/api/_debug/publish`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.token}` },
+          body: JSON.stringify({ type: 'ctx_threshold', sessionId: sid, percent: 31, crossed: 30 }),
+        });
+        await s.page.waitForSelector('.handoff-toast', { timeout: 5000 });
+        await shot(s.page, '11-handoff-toast-30');
+        return 'handoff toast appeared at 30%';
+      },
+    },
+    {
+      name: 'UI.12 ctx_threshold 50 fires handoff enforce modal',
+      run: async () => {
+        const listRes = await fetch(`http://127.0.0.1:${s.port}/api/sessions`, {
+          headers: { Authorization: `Bearer ${s.token}` },
+        });
+        const list = (await listRes.json()) as Array<{ sessionId: string }>;
+        const sid = list[0]?.sessionId;
+        if (!sid) throw new Error('no session for ctx_threshold 50 test');
+        await fetch(`http://127.0.0.1:${s.port}/api/_debug/publish`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.token}` },
+          body: JSON.stringify({ type: 'ctx_threshold', sessionId: sid, percent: 52, crossed: 50 }),
+        });
+        await s.page.waitForSelector('.handoff-modal-backdrop, .handoff-modal', { timeout: 5000 });
+        await shot(s.page, '12-handoff-modal-50');
+        // Dismiss so downstream UI.10 (mobile viewport) can click the topbar tabs.
+        await s.page.locator('button.handoff-modal-dismiss').click();
+        await wait(200);
+        return 'handoff modal appeared at 50% and was dismissable';
       },
     },
     {

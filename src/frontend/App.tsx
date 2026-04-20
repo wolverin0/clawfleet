@@ -2,8 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import type { SessionRecord } from '@shared/types';
 import { Terminal } from './Terminal';
 import { ChatPanel } from './ChatPanel';
+import { Login } from './Login';
+import { authedFetch, checkAuth, clearToken } from './auth';
 
 type Status =
+  | { kind: 'auth-checking' }
+  | { kind: 'auth-required' }
   | { kind: 'loading' }
   | { kind: 'waiting' }
   | { kind: 'ready'; session: SessionRecord }
@@ -15,7 +19,7 @@ const NARROW_VIEWPORT_PX = 800;
 type NarrowView = 'terminal' | 'chat';
 
 export function App() {
-  const [status, setStatus] = useState<Status>({ kind: 'loading' });
+  const [status, setStatus] = useState<Status>({ kind: 'auth-checking' });
   const [isNarrow, setIsNarrow] = useState<boolean>(() =>
     typeof window !== 'undefined' ? window.innerWidth < NARROW_VIEWPORT_PX : false,
   );
@@ -26,7 +30,10 @@ export function App() {
     cancelledRef.current = false;
 
     const fetchOnce = async (): Promise<SessionRecord[]> => {
-      const res = await fetch('/api/sessions');
+      const res = await authedFetch('/api/sessions');
+      if (res.status === 401) {
+        throw new Error('unauthorized');
+      }
       if (!res.ok) {
         throw new Error(`GET /api/sessions failed: ${res.status}`);
       }
@@ -38,7 +45,7 @@ export function App() {
         const sessions = await fetchOnce();
         if (cancelledRef.current) return;
         if (sessions.length > 0) {
-          setStatus({ kind: 'ready', session: sessions[0] });
+          setStatus({ kind: 'ready', session: sessions[0]! });
           return;
         }
         setStatus({ kind: 'waiting' });
@@ -46,12 +53,28 @@ export function App() {
       } catch (err) {
         if (cancelledRef.current) return;
         const message = err instanceof Error ? err.message : String(err);
+        if (message === 'unauthorized') {
+          clearToken();
+          setStatus({ kind: 'auth-required' });
+          return;
+        }
         setStatus({ kind: 'error', message });
         setTimeout(poll, POLL_INTERVAL_MS);
       }
     };
 
-    void poll();
+    const bootstrap = async () => {
+      const auth = await checkAuth();
+      if (cancelledRef.current) return;
+      if (auth.required && !auth.tokenValid) {
+        setStatus({ kind: 'auth-required' });
+        return;
+      }
+      setStatus({ kind: 'loading' });
+      void poll();
+    };
+
+    void bootstrap();
 
     return () => {
       cancelledRef.current = true;
@@ -67,6 +90,44 @@ export function App() {
       window.removeEventListener('resize', onResize);
     };
   }, []);
+
+  if (status.kind === 'auth-checking') {
+    return (
+      <div className="app">
+        <div className="app-status">Checking auth...</div>
+      </div>
+    );
+  }
+
+  if (status.kind === 'auth-required') {
+    return (
+      <Login
+        onAuthenticated={() => {
+          // Re-bootstrap by reloading the status engine.
+          setStatus({ kind: 'loading' });
+          // Kick off a new poll loop.
+          const reboot = async () => {
+            try {
+              const res = await authedFetch('/api/sessions');
+              if (res.ok) {
+                const list = (await res.json()) as SessionRecord[];
+                if (list.length > 0) setStatus({ kind: 'ready', session: list[0]! });
+                else setStatus({ kind: 'waiting' });
+              } else {
+                setStatus({ kind: 'error', message: `HTTP ${res.status}` });
+              }
+            } catch (err) {
+              setStatus({
+                kind: 'error',
+                message: err instanceof Error ? err.message : String(err),
+              });
+            }
+          };
+          void reboot();
+        }}
+      />
+    );
+  }
 
   if (status.kind === 'ready') {
     if (isNarrow) {

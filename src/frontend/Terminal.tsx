@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import type { ClientMessage, ServerMessage } from '@shared/types';
+import { wsUrl } from './auth';
 
 interface TerminalProps {
   sessionId: string;
@@ -126,8 +127,7 @@ export function Terminal({ sessionId }: TerminalProps) {
 
     const connect = () => {
       if (disposed) return;
-      const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
-      const url = `${proto}${location.host}/ws/pty/${encodeURIComponent(sessionId)}`;
+      const url = wsUrl(sessionId);
       ws = new WebSocket(url);
 
       ws.onopen = () => {

@@ -468,6 +468,66 @@ async function main(): Promise<void> {
       },
     },
     {
+      name: 'UI.16 POST /api/a2a/handoff sends prompt to source pane; GET /api/handoffs lists handoffs dir',
+      run: async () => {
+        const listRes = await fetch(`http://127.0.0.1:${s.port}/api/sessions`, {
+          headers: { Authorization: `Bearer ${s.token}` },
+        });
+        const list = (await listRes.json()) as Array<{ sessionId: string; tabTitle: string }>;
+        const source = list.find((x) => x.tabTitle === 'pw-one') ?? list[0];
+        const target = list.find((x) => x.tabTitle === 'pw-two') ?? list[1];
+        if (!source || !target) throw new Error('need at least 2 panes for handoff test');
+
+        const handoffRes = await fetch(`http://127.0.0.1:${s.port}/api/a2a/handoff`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.token}` },
+          body: JSON.stringify({
+            source_session_id: source.sessionId,
+            target_session_id: target.sessionId,
+            instruction: 'pw test handoff: run echo after reading this',
+          }),
+        });
+        if (!handoffRes.ok) throw new Error(`handoff HTTP ${handoffRes.status}`);
+        const handoff = (await handoffRes.json()) as {
+          ok: boolean;
+          corr: string;
+          suggested_file: string;
+        };
+        if (!handoff.ok) throw new Error('handoff returned ok:false');
+        if (!handoff.corr.startsWith('handoff-')) {
+          throw new Error(`unexpected corr shape: ${handoff.corr}`);
+        }
+
+        // Verify the instructive prompt actually reached the source pane's output.
+        const start = Date.now();
+        let seen = false;
+        while (Date.now() - start < 8000) {
+          const r = await fetch(
+            `http://127.0.0.1:${s.port}/api/sessions/${source.sessionId}/output?lines=80`,
+            { headers: { Authorization: `Bearer ${s.token}` } },
+          );
+          const body = (await r.json()) as { lines: string[] };
+          if (body.lines.some((l) => l.includes('[Dashboard A2A Handoff Request]'))) {
+            seen = true;
+            break;
+          }
+          await wait(300);
+        }
+        if (!seen) throw new Error('handoff prompt did not land in source pane within 8s');
+
+        // GET /api/handoffs for the source pane (directory may not exist; empty list is still 200).
+        const histRes = await fetch(
+          `http://127.0.0.1:${s.port}/api/handoffs?session=${source.sessionId}`,
+          { headers: { Authorization: `Bearer ${s.token}` } },
+        );
+        if (!histRes.ok) throw new Error(`handoffs HTTP ${histRes.status}`);
+        const hist = (await histRes.json()) as { handoffs: unknown[] };
+        if (!Array.isArray(hist.handoffs)) throw new Error('handoffs not an array');
+
+        return `corr=${handoff.corr}, prompt landed, history endpoint returned ${hist.handoffs.length} file(s)`;
+      },
+    },
+    {
       name: 'UI.15 Key aliases — ESC · Tab · arrows · PageUp — all accepted by /key',
       run: async () => {
         const listRes = await fetch(`http://127.0.0.1:${s.port}/api/sessions`, {

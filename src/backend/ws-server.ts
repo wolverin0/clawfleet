@@ -18,6 +18,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { PtyManager, type PtyDataEvent, type PtyExitEvent } from './pty-manager.js';
 import { EventBus, writeSseEvent, writeSseHeaders } from './events.js';
 import { runAutoHandoff, type AutoHandoffTimeouts } from './auto-handoff.js';
+import { runA2aHandoff, listHandoffs } from './handoff-routes.js';
 import { listPersonas, resolvePersona } from './personas.js';
 import {
   addWorktree,
@@ -408,6 +409,38 @@ function makeHttpHandler(
     if (method === 'GET' && pathname === '/api/personas') {
       const personas = listPersonas();
       writeJson(res, 200, { personas });
+      return;
+    }
+
+    // v2.7-parity handoff endpoints.
+    if (method === 'POST' && pathname === '/api/a2a/handoff') {
+      try {
+        const body = (await readJsonBody(req)) as Record<string, unknown>;
+        const result = runA2aHandoff(manager, body);
+        writeJson(res, 200, result);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const code = /required|not found/i.test(msg) ? 400 : 500;
+        writeJson(res, code, { error: 'a2a_handoff_failed', detail: msg });
+      }
+      return;
+    }
+
+    if (method === 'GET' && pathname === '/api/handoffs') {
+      const sessionId = query.get('session') ?? query.get('sessionId');
+      if (!sessionId) {
+        writeJson(res, 400, { error: 'missing_session', detail: '?session=<id> required' });
+        return;
+      }
+      try {
+        const result = listHandoffs(manager, sessionId);
+        writeJson(res, 200, result);
+      } catch (err) {
+        writeJson(res, 500, {
+          error: 'list_handoffs_failed',
+          detail: err instanceof Error ? err.message : String(err),
+        });
+      }
       return;
     }
 

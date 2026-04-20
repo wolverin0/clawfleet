@@ -28,6 +28,12 @@ import {
 import { parsePrdYaml, type PrdSpec } from './prd-bootstrap.js';
 import type { ChatStore } from './orchestrator/chat.js';
 import {
+  AuthStore,
+  extractBearerFromHeader,
+  extractTokenFromUrl,
+  isExemptFromAuth,
+} from './auth.js';
+import {
   DEFAULT_DASHBOARD_PORT,
   WS_PATH_PREFIX,
   type ClientMessage,
@@ -172,6 +178,7 @@ function makeHttpHandler(
   manager: PtyManager,
   bus: EventBus,
   getChat: () => ChatStore | null,
+  auth: AuthStore | null,
 ) {
   return async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
     const method = req.method ?? 'GET';
@@ -181,6 +188,7 @@ function makeHttpHandler(
       res.writeHead(204, {
         ...CORS_HEADERS,
         'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       });
       res.end();
       return;
@@ -188,8 +196,50 @@ function makeHttpHandler(
 
     const { pathname, query } = parsePath(url);
 
+    // Bearer-token gate. Skipped entirely if auth is null (pre-Phase 9 callers).
+    if (auth && !isExemptFromAuth(pathname, method)) {
+      const headerToken = extractBearerFromHeader(
+        (req.headers.authorization ?? req.headers.Authorization) as string | undefined,
+      );
+      const urlToken = headerToken ? null : extractTokenFromUrl(url);
+      const candidate = headerToken ?? urlToken;
+      if (!auth.verify(candidate)) {
+        writeJson(res, 401, { error: 'unauthorized', detail: 'missing or invalid bearer token' });
+        return;
+      }
+    }
+
     if (method === 'GET' && pathname === '/api/health') {
       writeJson(res, 200, { ok: true, version: VERSION });
+      return;
+    }
+
+    // Phase 9 auth endpoints (un-gated by design).
+
+    if (method === 'GET' && pathname === '/api/auth/status') {
+      if (!auth) {
+        writeJson(res, 200, { required: false });
+        return;
+      }
+      writeJson(res, 200, { required: true, initialized: auth.exists() });
+      return;
+    }
+
+    if (method === 'POST' && pathname === '/api/auth/rotate') {
+      if (!auth) {
+        writeJson(res, 400, { error: 'auth_not_configured' });
+        return;
+      }
+      // Rotating requires the CURRENT token in Authorization header.
+      const candidate = extractBearerFromHeader(
+        (req.headers.authorization ?? req.headers.Authorization) as string | undefined,
+      );
+      if (!auth.verify(candidate)) {
+        writeJson(res, 401, { error: 'unauthorized', detail: 'current token required for rotate' });
+        return;
+      }
+      const newToken = auth.rotate();
+      writeJson(res, 200, { token: newToken, rotatedAt: new Date().toISOString() });
       return;
     }
 
@@ -773,28 +823,45 @@ export interface StartServerOptions {
   port?: number;
   bus?: EventBus;
   chat?: ChatStore;
+  auth?: AuthStore;
 }
 
 export async function startServer(
   manager: PtyManager,
   portOrOpts?: number | StartServerOptions,
-): Promise<{ server: http.Server; bus: EventBus; setChat: (chat: ChatStore) => void }> {
+): Promise<{ server: http.Server; bus: EventBus; setChat: (chat: ChatStore) => void; auth: AuthStore | null }> {
   const opts: StartServerOptions =
     typeof portOrOpts === 'number' ? { port: portOrOpts } : portOrOpts ?? {};
   const port = opts.port ?? DEFAULT_DASHBOARD_PORT;
   const bus = opts.bus ?? new EventBus();
+  const auth = opts.auth ?? null;
   // Chat is optional — orchestrator may attach it later via setChat(). The
   // route handler checks the captured variable at call time (via closure).
   let chatRef: ChatStore | null = opts.chat ?? null;
   const setChat = (c: ChatStore): void => {
     chatRef = c;
   };
-  const server = http.createServer(makeHttpHandler(manager, bus, () => chatRef));
+  const server = http.createServer(makeHttpHandler(manager, bus, () => chatRef, auth));
   const wss = new WebSocketServer({ noServer: true });
 
   server.on('upgrade', (req, socket, head) => {
     const rawUrl = req.url ?? '';
     const pathname = rawUrl.split('?')[0] ?? '';
+
+    // Auth check on the WS upgrade. Accept either an Authorization header
+    // (not always possible for WebSocket in browsers) or a ?token=<t> query.
+    if (auth) {
+      const headerToken = extractBearerFromHeader(
+        (req.headers.authorization ?? req.headers.Authorization) as string | undefined,
+      );
+      const urlToken = headerToken ? null : extractTokenFromUrl(rawUrl);
+      if (!auth.verify(headerToken ?? urlToken)) {
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+    }
+
     const sessionId = extractSessionId(pathname);
     if (!sessionId) {
       socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
@@ -820,5 +887,5 @@ export async function startServer(
     });
   });
 
-  return { server, bus, setChat };
+  return { server, bus, setChat, auth };
 }

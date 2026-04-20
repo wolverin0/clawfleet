@@ -21,6 +21,7 @@ import type { PtyManager } from '../pty-manager.js';
 import type { EventBus } from '../events.js';
 import type { SseEvent, SessionId } from '../../shared/types.js';
 import { runAutoHandoff } from '../auto-handoff.js';
+import type { TelegramPusher } from '../telegram-push.js';
 
 import { SafetyState, classifyAction, type ClassifierContext } from './classifier.js';
 import { proposeActions, type RuleConfig } from './rules.js';
@@ -39,6 +40,8 @@ export interface ExecutorOptions {
   rules?: RuleConfig;
   /** Test clock. */
   now?: () => number;
+  /** Optional Telegram pusher — wired into the ChatStore for ask() notifications. */
+  telegram?: TelegramPusher;
 }
 
 export interface OrchestratorHandles {
@@ -57,7 +60,7 @@ export function startOrchestrator(
 ): OrchestratorHandles {
   const safety = new SafetyState();
   const log = new DecisionLog(opts.decisionsDir);
-  const chat = new ChatStore(bus);
+  const chat = new ChatStore(bus, opts.telegram);
 
   const projectOf = (sessionId: SessionId): string | null => {
     const rec = manager.get(sessionId);

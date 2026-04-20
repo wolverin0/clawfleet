@@ -23,6 +23,11 @@ import {
 } from '../src/backend/session-manifest.js';
 import { startOrchestrator } from '../src/backend/orchestrator/executor.js';
 import {
+  TelegramPusher,
+  configFromEnv as telegramConfigFromEnv,
+} from '../src/backend/telegram-push.js';
+import { AuthStore } from '../src/backend/auth.js';
+import {
   DEFAULT_DASHBOARD_PORT,
   type PtySpawnOptions,
   type SessionRecord,
@@ -133,7 +138,31 @@ async function main(): Promise<void> {
   const defaultSession = spawnDefaultSession(manager);
 
   const port = Number.parseInt(process.env.THEORCHESTRA_PORT ?? '', 10) || DEFAULT_DASHBOARD_PORT;
-  const { server, bus, setChat } = await startServer(manager, port);
+
+  // Phase 9 — bearer-token auth. Auto-generate on first run unless
+  // THEORCHESTRA_NO_AUTH=1 is set (useful for gate harnesses).
+  let authStore: AuthStore | null = null;
+  if (process.env.THEORCHESTRA_NO_AUTH !== '1') {
+    const tokenPath =
+      process.env.THEORCHESTRA_TOKEN_FILE ??
+      path.resolve('vault', '_auth', 'token.json');
+    authStore = new AuthStore(tokenPath);
+    if (!authStore.exists()) {
+      const token = authStore.generate();
+      console.log(
+        `[theorchestra] generated new auth token (${token.slice(0, 6)}…) → ${tokenPath}`,
+      );
+      console.log('[theorchestra] paste it into /login on first visit; rotate with `theorchestra rotate-token`');
+    }
+    // Make the token available to spawned panes so MCP tools can hit
+    // the backend with a valid bearer.
+    const loaded = authStore.read();
+    if (loaded) process.env.THEORCHESTRA_TOKEN = loaded.token;
+  } else {
+    console.log('[theorchestra] THEORCHESTRA_NO_AUTH=1 — dashboard is unauthenticated');
+  }
+
+  const { server, bus, setChat } = await startServer(manager, { port, auth: authStore ?? undefined });
 
   // Attach the Phase 3 event emitters. Each returns a disposer we'd call on
   // shutdown; we just drop them for now (process exit tears everything down).
@@ -146,6 +175,20 @@ async function main(): Promise<void> {
   console.log(`[theorchestra] SSE emitters attached; tasks watcher on ${tasksPath}`);
   console.log(`[theorchestra] session manifests at ${manifestDir}`);
 
+  // Phase 8 — optional Telegram push. No-op unless TELEGRAM_BOT_TOKEN and
+  // TELEGRAM_CHAT_ID are both set in the environment/.env.
+  const telegramCfg = telegramConfigFromEnv();
+  const telegram = new TelegramPusher(telegramCfg);
+  if (telegram.enabled) {
+    const threadSuffix =
+      telegramCfg && typeof telegramCfg.messageThreadId === 'number'
+        ? ` (thread_id=${telegramCfg.messageThreadId})`
+        : '';
+    console.log(`[theorchestra] Telegram push enabled${threadSuffix}`);
+  } else {
+    console.log('[theorchestra] Telegram push disabled (TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID unset)');
+  }
+
   // Phase 7 — active orchestrator.
   const decisionsDir =
     process.env.THEORCHESTRA_DECISIONS_DIR ?? path.resolve('vault', '_orchestrator');
@@ -154,6 +197,7 @@ async function main(): Promise<void> {
   const orchestrator = startOrchestrator(manager, bus, {
     decisionsDir,
     configPath,
+    telegram,
   });
   setChat(orchestrator.chat);
   console.log(`[theorchestra] orchestrator attached; decisions log at ${decisionsDir}`);

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SessionRecord } from '@shared/types';
 import { Terminal } from './Terminal';
+import { ChatPanel } from './ChatPanel';
 
 type Status =
   | { kind: 'loading' }
@@ -9,9 +10,16 @@ type Status =
   | { kind: 'error'; message: string };
 
 const POLL_INTERVAL_MS = 1000;
+const NARROW_VIEWPORT_PX = 800;
+
+type NarrowView = 'terminal' | 'chat';
 
 export function App() {
   const [status, setStatus] = useState<Status>({ kind: 'loading' });
+  const [isNarrow, setIsNarrow] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? window.innerWidth < NARROW_VIEWPORT_PX : false,
+  );
+  const [narrowView, setNarrowView] = useState<NarrowView>('terminal');
   const cancelledRef = useRef(false);
 
   useEffect(() => {
@@ -50,10 +58,55 @@ export function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const onResize = () => {
+      setIsNarrow(window.innerWidth < NARROW_VIEWPORT_PX);
+    };
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+    };
+  }, []);
+
   if (status.kind === 'ready') {
+    if (isNarrow) {
+      const showChat = narrowView === 'chat';
+      return (
+        <div className="app app-narrow">
+          <div className="app-toggle">
+            <button
+              type="button"
+              className={narrowView === 'terminal' ? 'app-toggle-btn active' : 'app-toggle-btn'}
+              onClick={() => setNarrowView('terminal')}
+            >
+              Terminal
+            </button>
+            <button
+              type="button"
+              className={narrowView === 'chat' ? 'app-toggle-btn active' : 'app-toggle-btn'}
+              onClick={() => setNarrowView('chat')}
+            >
+              Chat
+            </button>
+          </div>
+          <div className="app-narrow-body">
+            {showChat ? (
+              <ChatPanel />
+            ) : (
+              <Terminal sessionId={status.session.sessionId} />
+            )}
+          </div>
+        </div>
+      );
+    }
     return (
-      <div className="app">
-        <Terminal sessionId={status.session.sessionId} />
+      <div className="app app-wide">
+        <div className="app-terminal">
+          <Terminal sessionId={status.session.sessionId} />
+        </div>
+        <div className="app-chat">
+          <ChatPanel />
+        </div>
       </div>
     );
   }

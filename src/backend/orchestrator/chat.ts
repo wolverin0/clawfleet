@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto';
 
 import type { SessionId } from '../../shared/types.js';
 import type { EventBus } from '../events.js';
+import type { TelegramPusher } from '../telegram-push.js';
 
 export interface ChatMessage {
   id: string;
@@ -34,7 +35,10 @@ export class ChatStore {
   private readonly messages: ChatMessage[] = [];
   private readonly maxMessages = 500;
 
-  constructor(private readonly bus?: EventBus) {}
+  constructor(
+    private readonly bus?: EventBus,
+    private readonly telegram?: TelegramPusher,
+  ) {}
 
   list(): ChatMessage[] {
     return [...this.messages];
@@ -55,6 +59,15 @@ export class ChatStore {
       text,
     };
     this.push(msg);
+    // Phase 8 — push notification. Fire-and-forget; never block ask().
+    if (this.telegram) {
+      try {
+        this.telegram.notify(`[${topic}] orchestrator`, text);
+      } catch (err) {
+        const m = err instanceof Error ? err.message : String(err);
+        process.stderr.write(`[chat] telegram notify threw: ${m}\n`);
+      }
+    }
     return msg;
   }
 

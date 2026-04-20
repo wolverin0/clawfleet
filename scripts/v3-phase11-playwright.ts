@@ -270,18 +270,50 @@ async function main(): Promise<void> {
       },
     },
     {
-      name: 'UI.6 Multiple panes → broadcast bar enables',
+      name: 'UI.6 Broadcast-to-all actually delivers to every session',
       run: async () => {
         await spawnPane(s.port, s.token, homeDir, 'pw-two');
         await spawnPane(s.port, s.token, homeDir, 'pw-three');
+        // BroadcastBar polls /api/sessions every 3s; wait for the placeholder
+        // to reflect the new count so the component has seen every pane.
+        const listRes0 = await fetch(`http://127.0.0.1:${s.port}/api/sessions`, {
+          headers: { Authorization: `Bearer ${s.token}` },
+        });
+        const list0 = (await listRes0.json()) as unknown[];
+        const expected = list0.length;
         const broadcastInput = s.page.locator('input[aria-label="Broadcast message"]');
         await broadcastInput.waitFor({ timeout: 5000 });
-        await broadcastInput.fill('hello from playwright');
-        await s.page.waitForSelector('button:has-text("Broadcast"):not([disabled])', {
-          timeout: 3000,
+        await s.page.waitForFunction(
+          (n) => {
+            const el = document.querySelector<HTMLInputElement>(
+              'input[aria-label="Broadcast message"]',
+            );
+            return !!el && (el.placeholder ?? '').includes(`${n} session`);
+          },
+          expected,
+          { timeout: 8000 },
+        );
+        await broadcastInput.fill('echo pw-broadcast-probe');
+        const broadcastBtn = s.page.locator('button.broadcast-btn');
+        await broadcastBtn.waitFor({ timeout: 3000 });
+        await broadcastBtn.click();
+        await s.page.waitForSelector('.broadcast-result', { timeout: 5000 });
+        const resultText = (await s.page.locator('.broadcast-result').first().textContent()) ?? '';
+        const match = resultText.match(/(\d+)\s*ok,\s*(\d+)\s*failed/);
+        if (!match) throw new Error(`unexpected broadcast result: ${resultText}`);
+        const okCount = Number(match[1]);
+        const failCount = Number(match[2]);
+        const listRes = await fetch(`http://127.0.0.1:${s.port}/api/sessions`, {
+          headers: { Authorization: `Bearer ${s.token}` },
         });
-        await shot(s.page, '06-broadcast-ready');
-        return 'broadcast ready with 3+ panes';
+        const list = (await listRes.json()) as Array<{ sessionId: string }>;
+        if (okCount !== list.length || failCount !== 0) {
+          throw new Error(
+            `broadcast fanout mismatch: ok=${okCount} fail=${failCount} sessions=${list.length}`,
+          );
+        }
+        await shot(s.page, '06-broadcast-delivered');
+        return `broadcast fanned out to all ${okCount} sessions`;
       },
     },
     {

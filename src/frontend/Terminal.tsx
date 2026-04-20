@@ -1,8 +1,20 @@
-import { useEffect, useRef } from 'react';
-import { Terminal as XTerm } from '@xterm/xterm';
-import { FitAddon } from '@xterm/addon-fit';
+import { useEffect, useRef, useState } from 'react';
+import { Terminal as WTerm, useTerminal } from '@wterm/react';
+import '@wterm/react/css';
 import type { ClientMessage, ServerMessage } from '@shared/types';
 import { wsUrl } from './auth';
+
+/**
+ * Terminal renderer for a single PTY session.
+ *
+ * Uses `@wterm/react` (vercel-labs/wterm) — a Zig/WASM terminal emulator
+ * that renders to the DOM, giving native browser text selection +
+ * Ctrl+F find + a real a11y tree out of the box. See
+ * `docs/REMEDIATION.md` for the pivot rationale from `@xterm/xterm`.
+ *
+ * Scrollback replay + exponential-backoff reconnect are preserved
+ * identically to the earlier xterm.js implementation.
+ */
 
 interface TerminalProps {
   sessionId: string;
@@ -11,80 +23,55 @@ interface TerminalProps {
 const RECONNECT_BASE_MS = 2000;
 const RECONNECT_MAX_MS = 10000;
 
+// Per-session WebSocket registry so the onData/onResize callbacks can
+// reach the current socket without recreating them on every render.
+declare global {
+  // eslint-disable-next-line no-var
+  var __wtermWs: Record<string, WebSocket | null> | undefined;
+}
+
+function getWs(sessionId: string): WebSocket | null {
+  return globalThis.__wtermWs?.[sessionId] ?? null;
+}
+
+function setWs(sessionId: string, ws: WebSocket | null): void {
+  if (!globalThis.__wtermWs) globalThis.__wtermWs = {};
+  globalThis.__wtermWs[sessionId] = ws;
+}
+
 export function Terminal({ sessionId }: TerminalProps) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
+  const { ref, write } = useTerminal();
+  const [ready, setReady] = useState(false);
+  const writeRef = useRef(write);
+  writeRef.current = write;
+
+  // Track the latest cols/rows reported by onResize so the reconnect
+  // handshake can send current geometry on `hello`.
+  const geomRef = useRef<{ cols: number; rows: number }>({ cols: 80, rows: 24 });
 
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    const term = new XTerm({
-      screenReaderMode: true,
-      cursorBlink: true,
-      fontFamily:
-        'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
-      fontSize: 13,
-      theme: { background: '#0b0b0b', foreground: '#dddddd' },
-      scrollback: 10000,
-    });
-    const fit = new FitAddon();
-    term.loadAddon(fit);
-    term.open(container);
-
-    // Initial fit after mount — container has real dimensions now.
-    try {
-      fit.fit();
-    } catch {
-      // Container may not have layout yet; resize observer will retry.
-    }
-
+    if (!ready) return;
     let ws: WebSocket | null = null;
     let reconnectAttempt = 0;
     let reconnectTimer: number | null = null;
     let disposed = false;
 
-    const safeSend = (msg: ClientMessage) => {
+    const safeSend = (msg: ClientMessage): void => {
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify(msg));
       }
     };
 
-    const sendResize = () => {
-      safeSend({ type: 'resize', cols: term.cols, rows: term.rows });
+    const sendResize = (): void => {
+      const { cols, rows } = geomRef.current;
+      safeSend({ type: 'resize', cols, rows });
     };
 
-    const onWindowResize = () => {
-      try {
-        fit.fit();
-        sendResize();
-      } catch {
-        // Ignore transient layout errors.
-      }
-    };
-    window.addEventListener('resize', onWindowResize);
-
-    // ResizeObserver handles container-size changes that window resize misses
-    // (e.g., Vite HMR, flexbox reflow before layout settles).
-    const ro = new ResizeObserver(() => {
-      try {
-        fit.fit();
-        sendResize();
-      } catch {
-        // Ignore transient layout errors.
-      }
-    });
-    ro.observe(container);
-
-    const dataDisposable = term.onData((d) => {
-      safeSend({ type: 'input', data: d });
-    });
-
-    const writeBanner = (text: string, color: string) => {
-      // ANSI: \x1b[<color>m ... \x1b[0m, plus CRLF for clean new line.
-      term.write(`\r\n\x1b[${color}m${text}\x1b[0m\r\n`);
+    const writeBanner = (text: string, color: string): void => {
+      writeRef.current(`\r\n\x1b[${color}m${text}\x1b[0m\r\n`);
     };
 
-    const handleServerMessage = (raw: unknown) => {
+    const handleServerMessage = (raw: unknown): void => {
       if (typeof raw !== 'string') return;
       let msg: ServerMessage;
       try {
@@ -94,48 +81,41 @@ export function Terminal({ sessionId }: TerminalProps) {
         return;
       }
       switch (msg.type) {
-        case 'hello': {
-          // Scrollback MUST be written before any subsequent data frames.
-          if (msg.scrollback) term.write(msg.scrollback);
-          // After replay, tell backend our current geometry.
+        case 'hello':
+          if (msg.scrollback) writeRef.current(msg.scrollback);
           sendResize();
           break;
-        }
-        case 'data': {
-          term.write(msg.data);
+        case 'data':
+          writeRef.current(msg.data);
           break;
-        }
         case 'exit': {
           const codeStr = msg.code === null ? 'null' : String(msg.code);
           const signalStr = msg.signal === null ? '' : ` signal=${msg.signal}`;
           writeBanner(`[process exited code=${codeStr}${signalStr}]`, '33');
           break;
         }
-        case 'error': {
+        case 'error':
           console.warn('[Terminal] server error:', msg.reason);
           break;
-        }
         case 'pong':
           break;
         default: {
-          // Exhaustiveness guard — silently ignore unknown future types.
           const _never: never = msg;
           void _never;
         }
       }
     };
 
-    const connect = () => {
+    const connect = (): void => {
       if (disposed) return;
-      const url = wsUrl(sessionId);
-      ws = new WebSocket(url);
-
+      ws = new WebSocket(wsUrl(sessionId));
+      setWs(sessionId, ws);
       ws.onopen = () => {
         reconnectAttempt = 0;
       };
       ws.onmessage = (ev) => handleServerMessage(ev.data);
       ws.onerror = () => {
-        // Close handler will drive reconnect logic.
+        /* close handler drives reconnect */
       };
       ws.onclose = () => {
         if (disposed) return;
@@ -154,9 +134,6 @@ export function Terminal({ sessionId }: TerminalProps) {
     return () => {
       disposed = true;
       if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
-      window.removeEventListener('resize', onWindowResize);
-      ro.disconnect();
-      dataDisposable.dispose();
       if (ws) {
         ws.onopen = null;
         ws.onmessage = null;
@@ -165,12 +142,38 @@ export function Terminal({ sessionId }: TerminalProps) {
         try {
           ws.close();
         } catch {
-          // Ignore close errors during teardown.
+          /* teardown */
         }
       }
-      term.dispose();
+      setWs(sessionId, null);
     };
-  }, [sessionId]);
+  }, [ready, sessionId]);
 
-  return <div className="term" ref={containerRef} />;
+  return (
+    <WTerm
+      // @wterm/react@0.1.9 has an internal type mismatch — `useTerminal`
+      // returns `RefObject<TerminalHandle | null>` but `<Terminal>` expects
+      // `RefObject<TerminalHandle>`. Runtime works; cast to satisfy tsc.
+      ref={ref as unknown as React.RefObject<import('@wterm/react').TerminalHandle>}
+      className="term"
+      autoResize
+      cursorBlink
+      onData={(data: string) => {
+        const ws = getWs(sessionId);
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'input', data } satisfies ClientMessage));
+        }
+      }}
+      onResize={(cols, rows) => {
+        geomRef.current = { cols, rows };
+        const ws = getWs(sessionId);
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(
+            JSON.stringify({ type: 'resize', cols, rows } satisfies ClientMessage),
+          );
+        }
+      }}
+      onReady={() => setReady(true)}
+    />
+  );
 }

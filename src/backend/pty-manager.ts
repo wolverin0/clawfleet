@@ -60,6 +60,8 @@ export interface PtyExitEvent {
 export interface PtySpawnEvent {
   sessionId: SessionId;
   record: SessionRecord;
+  /** The exact argv we passed to node-pty — useful for manifest persistence. */
+  spawnArgs: string[];
 }
 
 export class PtyManager extends EventEmitter {
@@ -144,8 +146,30 @@ export class PtyManager extends EventEmitter {
       } satisfies PtyExitEvent);
     });
 
-    this.emit('spawn', { sessionId, record } satisfies PtySpawnEvent);
+    this.emit('spawn', { sessionId, record, spawnArgs: opts.args ?? [] } satisfies PtySpawnEvent);
     return record;
+  }
+
+  /**
+   * Public, operational cousin of `_injectForTest`: write a one-line banner
+   * into the session's ring buffer and frontend stream without running it
+   * through the PTY. Used for post-respawn messages like
+   * "[theorchestra] pane resumed at ...".
+   *
+   * Unlike the test helper, this does NOT touch lastDataAt so emitter state
+   * (idle/working, pane_stuck streak) is unaffected.
+   */
+  injectBanner(id: SessionId, text: string): void {
+    const entry = this.sessions.get(id);
+    if (!entry) return;
+    const chunk = text.endsWith('\r\n') ? text : text + '\r\n';
+    this.ingest(entry, chunk);
+    try {
+      entry.headless.write(chunk);
+    } catch {
+      /* ignore */
+    }
+    this.emit('data', { sessionId: id, data: chunk } satisfies PtyDataEvent);
   }
 
   list(): SessionRecord[] {

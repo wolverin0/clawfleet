@@ -17,6 +17,11 @@ import {
   attachTasksWatcher,
 } from '../src/backend/event-emitters/stuck-and-tasks.js';
 import {
+  SessionManifestStore,
+  attachManifestWriter,
+  respawnDeadSessions,
+} from '../src/backend/session-manifest.js';
+import {
   DEFAULT_DASHBOARD_PORT,
   type PtySpawnOptions,
   type SessionRecord,
@@ -106,6 +111,24 @@ function spawnDefaultSession(manager: PtyManager): SessionRecord {
 
 async function main(): Promise<void> {
   const manager = new PtyManager();
+
+  // Phase 6 — session manifest persistence + respawn. Must be wired BEFORE
+  // the default-session spawn so the boot-time spawn also lands on disk.
+  const manifestDir =
+    process.env.THEORCHESTRA_SESSIONS_DIR ?? path.resolve('vault', '_sessions');
+  const manifestStore = new SessionManifestStore(manifestDir);
+  attachManifestWriter(manager, manifestStore);
+
+  // Cold-start respawn pass — before spawning a fresh default session,
+  // recover any sessions whose pid is no longer alive.
+  const respawned = respawnDeadSessions(manager, manifestStore);
+  if (respawned.length > 0) {
+    console.log(
+      `[theorchestra] respawned ${respawned.length} session(s) from manifest: ` +
+        respawned.map((r) => `${r.oldSessionId.slice(0, 8)}→${r.newSessionId.slice(0, 8)} (${r.strategy})`).join(', '),
+    );
+  }
+
   const defaultSession = spawnDefaultSession(manager);
 
   const port = Number.parseInt(process.env.THEORCHESTRA_PORT ?? '', 10) || DEFAULT_DASHBOARD_PORT;
@@ -120,6 +143,7 @@ async function main(): Promise<void> {
     process.env.THEORCHESTRA_TASKS_FILE ?? path.resolve('vault', 'active_tasks.md');
   attachTasksWatcher(bus, tasksPath);
   console.log(`[theorchestra] SSE emitters attached; tasks watcher on ${tasksPath}`);
+  console.log(`[theorchestra] session manifests at ${manifestDir}`);
 
   console.log(
     `[theorchestra] listening on :${port}, default session ${defaultSession.sessionId}`,

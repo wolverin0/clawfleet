@@ -79,7 +79,6 @@ export function injectContext(
   );
 
   const payload = blocks.join('\n');
-  manager.write(targetSessionId, payload);
-  manager.write(targetSessionId, '\r');
+  void manager.writeAndSubmit(targetSessionId, payload);
   return { ok: true, bytes_written: payload.length + 1, sources };
 }

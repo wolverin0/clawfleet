@@ -179,7 +179,7 @@ export async function runAutoHandoff(
       `Are you at a natural break point where a handoff WOULD NOT lose mid-task context?\n\n` +
       `Reply in exactly this format:\n  READY: <1-line reason>\n  — or —\n  NOT_READY: <what you'd need to finish first>\n\n` +
       `Nothing else.`;
-    manager.write(sessionId, checkPrompt + '\r');
+    await manager.writeAndSubmit(sessionId, checkPrompt);
     log(`session-${sessionId} readiness check dispatched (ctx=${pct}%)`);
 
     const readiness = await waitForReadiness(manager, sessionId, timeouts);
@@ -207,7 +207,7 @@ export async function runAutoHandoff(
     `Include sections: Context, Current State, Open Threads, Next Steps, Constraints & Gotchas, Relevant Files. ` +
     `Do NOT include credentials, API keys, tokens, or private paths. Write the file, then stop.`;
   log(`session-${sessionId} dispatching /handoff skill (corr=${corr})`);
-  manager.write(sessionId, instruction + '\r');
+  await manager.writeAndSubmit(sessionId, instruction);
 
   // Step 4 — poll for file existence.
   const filePath = path.join(record.cwd, 'handoffs', filename);
@@ -243,16 +243,14 @@ export async function runAutoHandoff(
   const settled = await waitForSettle(manager, sessionId, timeouts);
   log(`session-${sessionId} settled (idle ${settled}x consecutive), sending /clear`);
 
-  // Step 7 — Ctrl+C → /clear → continuation. Belt-and-suspenders enters match v2.7.
+  // Step 7 — Ctrl+C → /clear → continuation. `writeAndSubmit` handles the
+  // Enter-buffer quirk in Claude's TUI (see pty-manager.writeAndSubmit).
   manager.write(sessionId, '\x03');
   await sleep(500);
-  manager.write(sessionId, '/clear\r');
+  await manager.writeAndSubmit(sessionId, '/clear');
   await sleep(4000);
-  manager.write(sessionId, '\r');
   const continuation = `Continue your work from the handoff file at handoffs/${filename}. Read it FIRST, then proceed with your next step.`;
-  manager.write(sessionId, continuation + '\r');
-  await sleep(500);
-  manager.write(sessionId, '\r');
+  await manager.writeAndSubmit(sessionId, continuation);
   log(`session-${sessionId} continuation injected`);
 
   return {

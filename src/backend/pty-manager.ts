@@ -186,6 +186,23 @@ export class PtyManager extends EventEmitter {
     entry.pty.write(data);
   }
 
+  /**
+   * Write `text` then submit with a separate Enter keystroke after a short
+   * flush delay. Bundling `\r` into the same write as `text + '\r'` lets
+   * Claude Code's TUI absorb the CR as a newline in the draft buffer
+   * instead of treating it as Enter — the user observed this end-to-end
+   * in pane-to-pane handoff + auto-handoff readiness-check dogfood on
+   * 2026-04-20. Always use this helper from orchestrator-owned flows
+   * that push prompts into a live TUI.
+   */
+  async writeAndSubmit(id: SessionId, text: string, flushMs = 120): Promise<void> {
+    const entry = this.sessions.get(id);
+    if (!entry || entry.exited) return;
+    entry.pty.write(text);
+    await new Promise((r) => setTimeout(r, flushMs));
+    entry.pty.write('\r');
+  }
+
   resize(id: SessionId, cols: number, rows: number): void {
     const entry = this.sessions.get(id);
     if (!entry || entry.exited) return;

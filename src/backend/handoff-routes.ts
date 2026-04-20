@@ -125,9 +125,10 @@ export function runA2aHandoff(
       `Do not do the target's work yourself. Your job is only to author the handoff file and delegate via MCP.`,
     ].join('\n');
 
-  // Write the instructive prompt + enter (hard rule for A2A dispatch).
-  manager.write(sourceId, prompt);
-  manager.write(sourceId, '\r');
+  // A2A hard rule: send_prompt then send_key('enter') — bundling `\r` into
+  // the prompt write lets Claude's TUI absorb it as a newline in the draft.
+  // `writeAndSubmit` flushes then sends Enter as a separate keystroke.
+  void manager.writeAndSubmit(sourceId, prompt);
 
   return {
     ok: true,

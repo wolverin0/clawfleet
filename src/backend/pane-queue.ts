@@ -60,8 +60,7 @@ export class PaneQueueStore {
       const next = queue.shift();
       if (!next) return;
       try {
-        manager.write(evt.sessionId, next.text);
-        manager.write(evt.sessionId, '\r');
+        void manager.writeAndSubmit(evt.sessionId, next.text);
         this.lastDrain.set(evt.sessionId, new Date().toISOString());
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -87,8 +86,7 @@ export class PaneQueueStore {
     const queue = this.queues.get(sessionId);
     if (!queue || queue.length === 0) return null;
     const next = queue.shift()!;
-    manager.write(sessionId, next.text);
-    manager.write(sessionId, '\r');
+    void manager.writeAndSubmit(sessionId, next.text);
     this.lastDrain.set(sessionId, new Date().toISOString());
     if (queue.length === 0) this.queues.delete(sessionId);
     return next;

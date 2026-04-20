@@ -345,6 +345,44 @@ async function main(): Promise<void> {
       },
     },
     {
+      name: 'UI.13 Pane-card prompt input delivers text to that pane',
+      run: async () => {
+        await s.page.locator('nav[aria-label="Primary"] [role="button"]:has-text("Sessions")').click();
+        const listRes = await fetch(`http://127.0.0.1:${s.port}/api/sessions`, {
+          headers: { Authorization: `Bearer ${s.token}` },
+        });
+        const list = (await listRes.json()) as Array<{ sessionId: string; tabTitle: string }>;
+        const target = list.find((x) => x.tabTitle === 'pw-one') ?? list[0];
+        if (!target) throw new Error('no target pane');
+        const name = target.tabTitle;
+        const probe = `pw-prompt-probe-${Math.random().toString(36).slice(2, 8)}`;
+        const input = s.page.locator(`input[aria-label="Prompt for ${name}"]`).first();
+        await input.waitFor({ timeout: 5000 });
+        await input.fill(`echo ${probe}`);
+        const sendBtn = s.page
+          .locator(`input[aria-label="Prompt for ${name}"] ~ button:has-text("Send")`)
+          .first();
+        await sendBtn.click();
+        const start = Date.now();
+        let seen = false;
+        while (Date.now() - start < 8000) {
+          const r = await fetch(
+            `http://127.0.0.1:${s.port}/api/sessions/${target.sessionId}/output?lines=40`,
+            { headers: { Authorization: `Bearer ${s.token}` } },
+          );
+          const body = (await r.json()) as { lines: string[] };
+          if (body.lines.some((l) => l.includes(probe))) {
+            seen = true;
+            break;
+          }
+          await wait(300);
+        }
+        if (!seen) throw new Error(`probe ${probe} did not reach pane within 8s`);
+        await shot(s.page, '13-pane-card-prompt-delivery');
+        return `prompt landed in ${name}`;
+      },
+    },
+    {
       name: 'UI.11 ctx_threshold 30 fires handoff suggest toast',
       run: async () => {
         await s.page.locator('nav[aria-label="Primary"] [role="button"]:has-text("Sessions")').click();

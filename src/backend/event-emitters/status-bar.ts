@@ -37,6 +37,10 @@ interface SessionScanState {
   lastPermissionAt: number;
   /** Last raw ctx% we parsed — exposed through the /status endpoint. */
   lastCtxPercent: number | null;
+  /** ms epoch of the last pane_idle we emitted. Prevents duplicates when
+   *  repeated scans keep observing the idle state, but still lets a fresh
+   *  burst of pty data → idle fire again. */
+  lastIdleFiredAt: number;
 }
 
 function createState(): SessionScanState {
@@ -46,6 +50,7 @@ function createState(): SessionScanState {
     lastCtxCrossed: 0,
     lastPermissionAt: 0,
     lastCtxPercent: null,
+    lastIdleFiredAt: 0,
   };
 }
 
@@ -64,8 +69,25 @@ const SPINNER_LINE_RE = /^\s*[✽✻⏺✳✢✶✣⏳✦✧]\s/;
  */
 const WORKING_VERB_RE = /\b(Inferring|Pondering|Crunching|Thinking|Working|Writing|Cooking|Brewing|Forging|Spinning|Computing|Processing|Reasoning)[.…]{1,3}/i;
 
-/** Bare prompt line — the TUI's input caret when idle. */
+/**
+ * Bare prompt line — the TUI's input caret when idle. Includes the xterm-
+ * rendered variants that come out as surrogate-pair garbage on some fonts
+ * (`\ud83d\udc9d` etc — Claude Code TUI's `❯` arrow doesn't survive
+ * xterm-headless cleanly on Windows ConPTY). We accept ANY short line
+ * that's dominated by non-letter/non-digit glyphs and sits between two
+ * horizontal rules (`────…`), which is the idle-prompt signature.
+ */
 const IDLE_PROMPT_RE = /^\s*[❯>]\s*$/;
+const IDLE_RULE_RE = /^[\s─]+$/; // the horizontal rules bracketing the prompt
+/** A short, letter-free line that looks like the prompt caret after TUI rendering. */
+function isLikelyPromptCaret(line: string): boolean {
+  if (line.length === 0 || line.length > 16) return false;
+  // If the line is entirely letters/digits, it's almost certainly content, not a caret.
+  if (/^[\s\w.]+$/.test(line)) return false;
+  // A caret line is mostly spaces with at most a handful of non-space glyphs.
+  const nonSpace = line.replace(/\s/g, '');
+  return nonSpace.length >= 1 && nonSpace.length <= 4;
+}
 
 /** Ctx percent — matches `Ctx: 38.0%` / `Ctx: 5%` / `Ctx:  12.3 %`. */
 const CTX_PERCENT_RE = /Ctx:\s*(\d+(?:\.\d+)?)\s*%/;
@@ -83,8 +105,21 @@ function detectLifecycle(lines: string[]): LifecycleState {
   const hasSpinner = last5.some((l) => SPINNER_LINE_RE.test(l) || WORKING_VERB_RE.test(l));
   if (hasSpinner) return 'working';
 
-  const hasIdlePrompt = last15.some((l) => IDLE_PROMPT_RE.test(l));
-  if (hasIdlePrompt) return 'idle';
+  // Primary idle signal: bare `❯`/`>` line in the last 15.
+  if (last15.some((l) => IDLE_PROMPT_RE.test(l))) return 'idle';
+  // Secondary idle signal: xterm-headless sometimes mangles Claude's `❯` into
+  // surrogate-pair garbage (observed on Windows ConPTY 2026-04-20). If the
+  // recent tail contains two horizontal rules with a short, letter-free line
+  // sandwiched between them, that IS the Claude idle-prompt signature.
+  for (let i = last15.length - 3; i >= 0; i--) {
+    const a = last15[i];
+    const b = last15[i + 1];
+    const c = last15[i + 2];
+    if (!a || !b || !c) continue;
+    if (IDLE_RULE_RE.test(a) && isLikelyPromptCaret(b) && IDLE_RULE_RE.test(c)) {
+      return 'idle';
+    }
+  }
 
   return 'unknown';
 }
@@ -142,15 +177,23 @@ export function attachStatusBarEmitter(manager: PtyManager, bus: EventBus): () =
     const lines = manager.renderedTail(sessionId, TAIL_LINES);
     if (lines.length === 0) return;
 
-    // --- pane_idle: working -> idle transition ---
+    // --- pane_idle: fire whenever we detect idle on a scan that was
+    // triggered AFTER the last idle-fire by fresh pty data. Using pty
+    // quiescence as the gate is more robust than tracking state.lastState
+    // through the working→idle edge, because detectLifecycle frequently
+    // returns 'unknown' during Claude's working phase (spinner glyphs
+    // don't always render cleanly in xterm-headless on ConPTY). Every
+    // data burst that settles into idle fires exactly one pane_idle.
     const lifecycle = detectLifecycle(lines);
-    if (lifecycle !== 'unknown') {
-      if (state.lastState === 'working' && lifecycle === 'idle') {
+    if (lifecycle === 'idle') {
+      const lastData = manager.lastDataAt(sessionId) ?? 0;
+      if (lastData > state.lastIdleFiredAt) {
+        state.lastIdleFiredAt = lastData;
         const payload: PayloadOf<'pane_idle'> = { type: 'pane_idle', sessionId };
         bus.publish(payload);
       }
-      state.lastState = lifecycle;
     }
+    if (lifecycle !== 'unknown') state.lastState = lifecycle;
 
     // --- ctx_threshold: upward crossings at 40 (suggest) / 60 (critical) / 70 (automatic) ---
     const pct = detectCtxPercent(lines);

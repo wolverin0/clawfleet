@@ -186,6 +186,15 @@ export class PtyManager extends EventEmitter {
     entry.pty.write(data);
   }
 
+  /** ms epoch of the last PTY data byte received on this session, or null
+   *  if no data has flowed yet. Consumed by status-bar emitter to gate
+   *  pane_idle emissions (only fire when new data has arrived since the
+   *  last idle-fire).
+   */
+  lastDataAt(id: SessionId): number | null {
+    return this.sessions.get(id)?.lastDataAt ?? null;
+  }
+
   /**
    * Write `text` then submit with a separate Enter keystroke after a short
    * flush delay. Bundling `\r` into the same write as `text + '\r'` lets

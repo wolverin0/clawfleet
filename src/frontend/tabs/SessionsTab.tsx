@@ -1,15 +1,15 @@
 import { PaneGrid } from './PaneGrid';
+import { BroadcastBar } from '../shell/BroadcastBar';
 
 /**
- * U2 — Sessions tab is now the pane-card grid (one card per live session).
- * The U0 Terminal + ChatPanel is temporarily accessible through the Live
- * tab until U3 ports the full activity sidebar (which is where the chat
- * belongs).
+ * U2 + U4 — Sessions tab: broadcast bar on top, pane-card grid underneath,
+ * floating pane-badge stack bottom-right (from BroadcastBar).
  */
 
 export function SessionsTab() {
   return (
     <div className="sessions-tab sessions-tab-grid">
+      <BroadcastBar />
       <PaneGrid />
     </div>
   );

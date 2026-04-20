@@ -170,6 +170,144 @@ body,
   min-width: 0;
 }
 
+/* --- Tasks strip (U4) --- */
+
+.tasks-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 16px;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--glass-border);
+  font-size: 11px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  min-height: 28px;
+}
+
+.tasks-strip-summary strong {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.tasks-strip-stat {
+  color: var(--text-secondary);
+}
+
+.tasks-strip-completed {
+  color: var(--green);
+}
+
+.tasks-strip-stuck {
+  color: var(--red);
+}
+
+.tasks-strip-empty {
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+.tasks-strip-err {
+  color: var(--red);
+  margin-left: auto;
+  font-size: 10px;
+}
+
+/* --- Broadcast bar (U4) --- */
+
+.broadcast-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--glass-border);
+  flex-shrink: 0;
+}
+
+.broadcast-input {
+  flex: 1;
+  background: var(--bg-app);
+  border: 1px solid var(--glass-border);
+  border-radius: 5px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text-primary);
+  outline: none;
+  font-family: inherit;
+}
+
+.broadcast-input:focus {
+  border-color: var(--accent);
+}
+
+.broadcast-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.broadcast-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.broadcast-result {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+/* --- Pane badges (U4) — floating bottom-right --- */
+
+.pane-badges {
+  position: fixed;
+  right: 340px; /* above the sidebar */
+  bottom: 40px; /* above the tasks strip */
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--glass);
+  backdrop-filter: blur(25px);
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  z-index: 40;
+  pointer-events: none; /* visual only for now */
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.activity-sidebar.collapsed ~ * .pane-badges,
+.pane-badges.as-collapsed {
+  right: 56px;
+}
+
+.pane-badge {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-elevated);
+  border: 1px solid var(--glass-border);
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  letter-spacing: 0.5px;
+}
+
+/* Grid content area needs bottom padding so floating badges don't cover cards */
+.sessions-tab-grid {
+  padding-bottom: 60px;
+}
+
+
 .shell-body {
   flex: 1;
   overflow: hidden;

@@ -266,6 +266,13 @@ function parseTaskBlock(title: string, body: string, path: string): TaskRec | nu
   return rec;
 }
 
+export type { TaskRec, TaskStatus };
+
+/** Public: read + parse a v2.7-shaped active_tasks.md. */
+export function readTasks(path: string): TaskRec[] {
+  return Array.from(parseTasksFile(path).values());
+}
+
 function parseTasksFile(path: string): Map<string, TaskRec> {
   const out = new Map<string, TaskRec>();
   let content: string;

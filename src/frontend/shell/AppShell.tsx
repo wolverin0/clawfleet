@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { authedFetch } from '../auth';
 import { ActivitySidebar } from '../sidebar/ActivitySidebar';
+import { TasksStrip } from './TasksStrip';
 import type { SessionRecord } from '@shared/types';
 
 /**
@@ -147,6 +148,7 @@ export function AppShell({ activeTab, onTabChange, children }: AppShellProps) {
         <main className="shell-body">{children}</main>
         <ActivitySidebar />
       </div>
+      <TasksStrip />
     </div>
   );
 }

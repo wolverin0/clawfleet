@@ -27,6 +27,7 @@ import {
 } from './worktree.js';
 import { parsePrdYaml, type PrdSpec } from './prd-bootstrap.js';
 import type { ChatStore } from './orchestrator/chat.js';
+import { readTasks } from './event-emitters/stuck-and-tasks.js';
 import {
   AuthStore,
   extractBearerFromHeader,
@@ -315,6 +316,23 @@ function makeHttpHandler(
     }
 
     // Phase 5 — agency mode endpoints.
+
+    if (method === 'GET' && pathname === '/api/tasks') {
+      // Read the same active_tasks.md the watcher watches. Path is taken from
+      // THEORCHESTRA_TASKS_FILE so gate harnesses can redirect.
+      const tasksFile =
+        process.env.THEORCHESTRA_TASKS_FILE ?? path.resolve('vault', 'active_tasks.md');
+      try {
+        const tasks = readTasks(tasksFile);
+        writeJson(res, 200, { path: tasksFile, tasks });
+      } catch (err) {
+        writeJson(res, 500, {
+          error: 'tasks_read_failed',
+          detail: err instanceof Error ? err.message : String(err),
+        });
+      }
+      return;
+    }
 
     if (method === 'GET' && pathname === '/api/personas') {
       const personas = listPersonas();

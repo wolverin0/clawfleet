@@ -321,7 +321,29 @@ function makeHttpHandler(
     }
 
     if (method === 'GET' && pathname === '/api/sessions') {
-      writeJson(res, 200, manager.list());
+      // P7.A3: filter omniclaude unless ?include_omni=1 is set.
+      const omniSid = process.env.THEORCHESTRA_OMNICLAUDE_SID ?? null;
+      const includeOmni = query.get('include_omni') === '1';
+      const all = manager.list();
+      const filtered =
+        omniSid && !includeOmni ? all.filter((r) => r.sessionId !== omniSid) : all;
+      writeJson(res, 200, filtered);
+      return;
+    }
+
+    // P7.A3: dedicated endpoint for the Omni tab to fetch just omniclaude.
+    if (method === 'GET' && pathname === '/api/orchestrator/omniclaude') {
+      const omniSid = process.env.THEORCHESTRA_OMNICLAUDE_SID ?? null;
+      if (!omniSid) {
+        writeJson(res, 200, { enabled: false, session: null });
+        return;
+      }
+      const rec = manager.get(omniSid);
+      if (!rec) {
+        writeJson(res, 200, { enabled: true, session: null, note: 'omniclaude sid set but pane not found' });
+        return;
+      }
+      writeJson(res, 200, { enabled: true, session: rec });
       return;
     }
 
@@ -562,6 +584,40 @@ function makeHttpHandler(
       } catch (err) {
         writeJson(res, 400, {
           error: 'ask_failed',
+          detail: err instanceof Error ? err.message : String(err),
+        });
+      }
+      return;
+    }
+
+    // P7.C — omniclaude uses this to explicitly escalate to the user.
+    // Identical semantics to `chat.ask()` firing from the executor, but
+    // callable over HTTP so the omniclaude pane (or its MCP tool) can
+    // surface content-class decisions.
+    if (method === 'POST' && pathname === '/api/chat/orchestrator-ask') {
+      try {
+        const body = (await readJsonBody(req)) as {
+          topic?: unknown;
+          text?: unknown;
+          session_id?: unknown;
+        };
+        if (typeof body.topic !== 'string' || typeof body.text !== 'string') {
+          writeJson(res, 400, {
+            error: 'invalid_body',
+            detail: 'topic (string) + text (string) required',
+          });
+          return;
+        }
+        const chat = getChat();
+        if (!chat) {
+          writeJson(res, 503, { error: 'chat_not_ready' });
+          return;
+        }
+        const sid = typeof body.session_id === 'string' ? body.session_id : null;
+        writeJson(res, 201, chat.ask(sid, body.topic, body.text));
+      } catch (err) {
+        writeJson(res, 400, {
+          error: 'orchestrator_ask_failed',
           detail: err instanceof Error ? err.message : String(err),
         });
       }

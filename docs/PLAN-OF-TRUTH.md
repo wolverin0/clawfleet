@@ -215,9 +215,98 @@ is the primary conductor. Rule engine downgrades to "suggestion source."
 - [x] **P6.D3** Commit `98033dc feat(v3): LLM-primary orchestration with Opus`.
 - [x] **P6.D4** Tagged `v3.0.0-rc.2`.
 
+## PHASE 7 — Persistent omniclaude pane (supersedes P2/P6 as primary)
+
+Added 2026-04-21 after P6 shipped. The one-shot `claude -p` advisor is
+fundamentally wasteful: loses context between calls, re-pays input tokens
+every time, cannot hold multi-step intentions. The correct design is what
+the user had in v2.7 (`vault/_orchestrator-worker/`): a **persistent
+Claude Code session** that IS the orchestrator, with a role-defining
+CLAUDE.md, MCP tool access to the backend, and a context that accumulates
+turn-over-turn with prompt-cache amortization.
+
+P2/P6 demote to **fallback** — when omniclaude is disabled or down, the
+rule engine + one-shot advisor continue to work exactly as today.
+
+### 7.A Spawn + lifecycle
+
+- [x] **P7.A1** `vault/_omniclaude/CLAUDE.md` authored: conversational
+      port of v2.7 worker with role definition, decision framework,
+      action shapes, safety rules.
+- [x] **P7.A2** `startOmniclaudeDriver()` spawns via `cmd.exe /c claude
+      --continue` on Windows (direct spawn errors with code 2 on .cmd
+      wrappers). POSIX uses direct `claude` spawn.
+- [x] **P7.A3** `GET /api/sessions` filters omniclaude unless
+      `?include_omni=1`. New `GET /api/orchestrator/omniclaude` returns
+      enabled flag + session record.
+- [x] **P7.A4** Boot prompt `[BOOT] theorchestra backend started…`
+      injected 4s after spawn so Claude has time to load CLAUDE.md.
+
+### 7.B Event → prompt channel
+
+- [x] **P7.B1** Event formatter produces `[EVENT type=X id=N ts=iso]`
+      prompts. Bodies per event type in `formatEventBody()`.
+- [x] **P7.B2** Queue reuses existing `PaneQueueStore` keyed by the
+      omniclaude sid; drains on its own `pane_idle`.
+- [x] **P7.B3** Self-filter: events with `sessionId === omniSid` are
+      skipped so omniclaude doesn't chase its own output.
+
+### 7.C MCP tools omniclaude needs
+
+- [x] **P7.C1** Existing tools audited: spawn_session, send_prompt,
+      send_key, read_output, kill_session, discover_sessions, get_status,
+      auto_handoff, wait_for_idle. All intact.
+- [x] **P7.C2** Five new MCP tools in `src/mcp/handlers/omniclaude.ts`:
+      `snapshot_dashboard`, `act_on_ref`, `get_recent_decisions`,
+      `get_chat_messages`, `ask_user`. Backend endpoint added:
+      `POST /api/chat/orchestrator-ask`.
+- [x] **P7.C3** MCP auth works transparently — backend client reads
+      token via env / token file; omniclaude pane's cwd sees
+      .mcp.json.
+
+### 7.D Self-handoff (own ctx)
+
+- [x] **P7.D1** Documented in CLAUDE.md under "Your own ctx" section;
+      mechanism already exists via `ctx_threshold` event emission +
+      omniclaude receives it as any other event (self-filter exempts
+      ctx_threshold for the omni sid since it's the one that matters
+      to omniclaude).
+- [x] **P7.D2** CLAUDE.md boot sequence reads `state.md` if present.
+
+### 7.E Fallback path
+
+- [x] **P7.E1** Documented: when omniclaude is disabled / not spawned,
+      the P6 rule-engine + one-shot advisor path continues to work.
+      No code regression — driver returns `NOT_RUNNING` stub cleanly.
+- [ ] **P7.E2** Health check (30s-idle-after-event = dead) — deferred
+      to a later iteration; MVP relies on omniclaude staying responsive.
+
+### 7.F Persistence (crash recovery)
+
+- [x] **P7.F1** `claude --continue` mechanism is the primary
+      persistence. Session history lives in
+      `~/.claude/projects/<cwd-hash>/<session-id>.jsonl`.
+- [ ] **P7.F2** Periodic state.md snapshot — omniclaude's own
+      responsibility via its CLAUDE.md instructions (no backend poll).
+
+### 7.G Tests + gate
+
+- [x] **P7.G1** `scripts/v3-omniclaude-unit.ts` — 3/3 PASS:
+      disabled stub, no-claude graceful, event→prompt pipeline + self-filter.
+- [x] **P7.G2** `scripts/v3-omniclaude-gate.ts` — 4/4 PASS live:
+      spawn verified, sessions filter verified, `?include_omni=1` bypass
+      verified, 275 bytes streamed from omniclaude pane.
+- [x] **P7.G3** Both added to aggregator.
+
+### 7.H Release
+
+- [x] **P7.H1** `npm run v3:gate` = 10/10 green.
+- [x] **P7.H2** Commit `e81b996 feat(v3): persistent omniclaude pane`.
+- [x] **P7.H3** Tagged `v3.1.0-rc.1`.
+
 ## Execution order
 
-P0 → P1 → P2 → P3 → P4 → P5 → P6. No skipping. If a phase fails verify,
+P0 → P1 → P2 → P3 → P4 → P5 → P6 → P7. No skipping. If a phase fails verify,
 fix THAT phase before advancing. If a new requirement surfaces mid-execution,
 write it into this file first, then implement.
 

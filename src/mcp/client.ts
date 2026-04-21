@@ -185,4 +185,45 @@ export const backendClient = {
       opts,
       { source },
     ),
+
+  // P7.C — omniclaude's eyes + hands.
+  snapshotDashboard: (opts?: BackendClientOptions) =>
+    request<{
+      capturedAt: string;
+      latencyMs: number;
+      refsCount: number;
+      refs: Record<string, { name: string; role: string }>;
+      snapshotText: string | null;
+      error?: string;
+    }>('POST', '/api/orchestrator/snapshot', opts),
+
+  actOnRef: (ref: string, verb: 'click' | 'hover' | 'focus' | 'dblclick', opts?: BackendClientOptions) =>
+    request<{ ok: boolean; ref: string; verb: string }>(
+      'POST',
+      '/api/orchestrator/act',
+      opts,
+      { ref, verb },
+    ),
+
+  getRecentDecisions: (limit: number, opts?: BackendClientOptions) =>
+    request<{ decisions: unknown[] }>(
+      'GET',
+      `/api/orchestrator/decisions?limit=${limit}`,
+      opts,
+    ),
+
+  getChatMessages: (limit: number, opts?: BackendClientOptions) =>
+    request<{ messages: unknown[] }>(
+      'GET',
+      `/api/chat/messages?limit=${limit}`,
+      opts,
+    ),
+
+  askUser: (topic: string, text: string, sessionId: string | null, opts?: BackendClientOptions) =>
+    request<unknown>(
+      'POST',
+      '/api/chat/orchestrator-ask',
+      opts,
+      { topic, text, session_id: sessionId },
+    ),
 };

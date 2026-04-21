@@ -18,6 +18,7 @@ import { sessionMgmtHandlers } from './handlers/session-mgmt.js';
 import { ioHandlers } from './handlers/io.js';
 import { layoutHandlers } from './handlers/layout.js';
 import { highLevelHandlers } from './handlers/high-level.js';
+import { omniclaudeHandlers } from './handlers/omniclaude.js';
 
 const VERSION = '3.0.0-alpha.1';
 
@@ -60,6 +61,7 @@ async function main(): Promise<void> {
     ...ioHandlers,
     ...layoutHandlers,
     ...highLevelHandlers,
+    ...omniclaudeHandlers,
   ];
 
   for (const h of allHandlers) register(server, h);

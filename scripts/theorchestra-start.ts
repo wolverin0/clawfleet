@@ -24,6 +24,8 @@ import {
 import { startOrchestrator } from '../src/backend/orchestrator/executor.js';
 import { buildDashboardController } from '../src/backend/orchestrator/dashboard-controller.js';
 import { LlmAdvisor } from '../src/backend/orchestrator/llm-advisor.js';
+import { startOmniclaudeDriver } from '../src/backend/omniclaude-driver.js';
+import { PaneQueueStore } from '../src/backend/pane-queue.js';
 import { attachFromEnv as attachMemoryMasterBridge } from '../src/backend/memorymaster-bridge.js';
 import { attachAutoHandoffWatchdog } from '../src/backend/auto-handoff-watchdog.js';
 import {
@@ -174,9 +176,12 @@ async function main(): Promise<void> {
     console.log('[theorchestra] THEORCHESTRA_NO_AUTH=1 — dashboard is unauthenticated');
   }
 
+  // P7.A/B — shared pane-queue so both user Q+ and omniclaude events drain
+  // on the same pane_idle subscription.
+  const queueStore = new PaneQueueStore();
   const { server, bus, setChat, setDashboard, setAdvisor, setDecisionLog } = await startServer(
     manager,
-    { port, auth: authStore ?? undefined },
+    { port, auth: authStore ?? undefined, queueStore },
   );
 
   // Attach the Phase 3 event emitters. Each returns a disposer we'd call on
@@ -257,6 +262,22 @@ async function main(): Promise<void> {
   setChat(orchestrator.chat);
   setDecisionLog(orchestrator.log);
   console.log(`[theorchestra] orchestrator attached; decisions log at ${decisionsDir}`);
+
+  // P7.A — persistent omniclaude pane (opt-in). When enabled, it becomes
+  // the primary reasoner; rule engine + one-shot advisor stay as fallback.
+  const omniclaude = startOmniclaudeDriver({
+    enabled: process.env.THEORCHESTRA_OMNICLAUDE === '1',
+    manager,
+    bus,
+    queue: queueStore,
+  });
+  if (omniclaude.sessionId) {
+    // Expose the omniclaude sid to the ws-server so /api/sessions can filter it.
+    process.env.THEORCHESTRA_OMNICLAUDE_SID = omniclaude.sessionId;
+    console.log(
+      `[theorchestra] omniclaude active; pane ${omniclaude.sessionId.slice(0, 8)} is the primary reasoner`,
+    );
+  }
 
   // v3.0-native MemoryMaster bridge (opt-in via THEORCHESTRA_MEMORYMASTER_INBOX=1).
   // Writes high-signal events as JSONL lines to vault/_memorymaster/inbox.jsonl.

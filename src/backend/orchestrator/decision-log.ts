@@ -12,6 +12,14 @@ import * as path from 'node:path';
 import type { DecisionRecord } from './types.js';
 
 export class DecisionLog {
+  /**
+   * In-memory ring of recent decisions for quick consumers (advisor context,
+   * UI reasoning panel). Persistence still lives on disk — this is just a
+   * cache so we don't re-parse the markdown file on every advise() call.
+   */
+  private readonly recent: DecisionRecord[] = [];
+  private readonly recentCap = 200;
+
   constructor(private readonly dir: string) {}
 
   private pathForDate(d: Date = new Date()): string {
@@ -34,6 +42,16 @@ export class DecisionLog {
     }
     // Append the line (no closing fence — the file stays "open" by design).
     fs.appendFileSync(file, line + '\n', 'utf-8');
+    // Mirror into the in-memory recent ring.
+    this.recent.push(rec);
+    if (this.recent.length > this.recentCap) {
+      this.recent.splice(0, this.recent.length - this.recentCap);
+    }
+  }
+
+  /** Recent in-memory decisions, oldest → newest. Cheap — no disk read. */
+  tail(n: number): DecisionRecord[] {
+    return this.recent.slice(Math.max(0, this.recent.length - n));
   }
 
   readAll(file: string): DecisionRecord[] {

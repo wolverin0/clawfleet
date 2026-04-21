@@ -4,15 +4,21 @@
  *
  * Phase 7 scope: in-memory message store with simple ask/answer/resolve
  * semantics. Phase 8 wires Telegram push notifications on top so the user
- * gets pinged when an `ask` lands; Phase 9 adds auth. The dashboard will
- * render a panel over the existing SSE feed (new event type `chat_updated`).
+ * gets pinged when an `ask` lands; Phase 9 adds auth.
+ *
+ * 2026-04-21: each orchestrator-originated ask now attaches a dashboard
+ * snapshot (agent-browser a11y tree of the running dashboard) asynchronously.
+ * The snapshot lands on the message in-place; dashboard + LLM consumers see
+ * it on the next /api/chat/messages poll.
  */
 
+import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 
 import type { SessionId } from '../../shared/types.js';
 import type { EventBus } from '../events.js';
 import type { TelegramPusher } from '../telegram-push.js';
+import type { DashboardSnapshotPayload } from './dashboard-controller.js';
 
 export interface ChatMessage {
   id: string;
@@ -29,16 +35,33 @@ export interface ChatMessage {
   inReplyTo?: string;
   /** Set when the orchestrator considers this ask resolved. */
   resolvedAt?: string;
+  /**
+   * Dashboard snapshot (a11y tree + semantic refs) captured at ask-time.
+   * Attached asynchronously — `undefined` immediately after ask(), then
+   * filled in once agent-browser returns. `error` is set if the snapshot
+   * failed; `refsCount === 0` + `error === undefined` = not-yet-attached.
+   */
+  snapshot?: DashboardSnapshotPayload;
 }
 
-export class ChatStore {
+/** Provider the chat uses to fetch a dashboard snapshot when an ask lands. */
+export type SnapshotProvider = () => Promise<DashboardSnapshotPayload>;
+
+export interface ChatStoreEvents {
+  'chat_updated': [ChatMessage];
+}
+
+export class ChatStore extends EventEmitter {
   private readonly messages: ChatMessage[] = [];
   private readonly maxMessages = 500;
 
   constructor(
     private readonly bus?: EventBus,
     private readonly telegram?: TelegramPusher,
-  ) {}
+    private readonly snapshotProvider?: SnapshotProvider,
+  ) {
+    super();
+  }
 
   list(): ChatMessage[] {
     return [...this.messages];
@@ -68,6 +91,26 @@ export class ChatStore {
         process.stderr.write(`[chat] telegram notify threw: ${m}\n`);
       }
     }
+    // 2026-04-21 — attach dashboard snapshot async. Does NOT block ask().
+    if (this.snapshotProvider) {
+      this.snapshotProvider()
+        .then((snap) => {
+          msg.snapshot = snap;
+          this.emit('chat_updated', msg);
+        })
+        .catch((err) => {
+          const m = err instanceof Error ? err.message : String(err);
+          msg.snapshot = {
+            capturedAt: new Date().toISOString(),
+            latencyMs: 0,
+            refsCount: 0,
+            refs: {},
+            snapshotText: null,
+            error: m.slice(0, 500),
+          };
+          this.emit('chat_updated', msg);
+        });
+    }
     return msg;
   }
 
@@ -87,7 +130,10 @@ export class ChatStore {
     };
     this.push(msg);
     // Mark the ask as resolved.
-    if (ask) ask.resolvedAt = msg.ts;
+    if (ask) {
+      ask.resolvedAt = msg.ts;
+      this.emit('chat_updated', ask);
+    }
     return msg;
   }
 
@@ -110,9 +156,7 @@ export class ChatStore {
     if (this.messages.length > this.maxMessages) {
       this.messages.splice(0, this.messages.length - this.maxMessages);
     }
-    // The SSE bus could carry a chat_updated event, but we haven't added that
-    // to the SseEvent union yet. Phase 7 keeps the chat in its own poll-based
-    // HTTP surface; Phase 8 can wire SSE push if the UX needs it.
+    this.emit('chat_updated', msg);
     void this.bus;
   }
 }

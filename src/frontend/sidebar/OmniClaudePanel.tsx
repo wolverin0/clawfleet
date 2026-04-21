@@ -18,6 +18,13 @@ interface ChatMessage {
   text: string;
   inReplyTo?: string;
   resolvedAt?: string;
+  /** PLAN-OF-TRUTH P4.3 — dashboard snapshot attached at ask time. */
+  snapshot?: {
+    capturedAt: string;
+    latencyMs: number;
+    refsCount: number;
+    error?: string;
+  };
 }
 
 type Status = 'loading' | 'ok' | 'not_ready' | 'error';
@@ -122,6 +129,13 @@ export function OmniClaudePanel() {
                 <span className="omni-msg-time">{fmtTime(m.ts)}</span>
               </div>
               <div className="omni-msg-body">{m.text}</div>
+              {m.snapshot && (
+                <div className={`omni-msg-snap ${m.snapshot.error ? 'err' : ''}`}>
+                  {m.snapshot.error
+                    ? `snapshot: ${m.snapshot.error.slice(0, 60)}`
+                    : `📸 snapshot · ${m.snapshot.refsCount} refs · ${m.snapshot.latencyMs}ms`}
+                </div>
+              )}
               {isUnresolved && (
                 <div className="omni-msg-reply">
                   <input

@@ -31,6 +31,9 @@ import {
 } from './worktree.js';
 import { parsePrdYaml, type PrdSpec } from './prd-bootstrap.js';
 import type { ChatStore } from './orchestrator/chat.js';
+import type { DashboardController, DashboardActVerb } from './orchestrator/dashboard-controller.js';
+import type { LlmAdvisor } from './orchestrator/llm-advisor.js';
+import type { DecisionLog } from './orchestrator/decision-log.js';
 import { readTasks } from './event-emitters/stuck-and-tasks.js';
 import {
   AuthStore,
@@ -231,6 +234,9 @@ function makeHttpHandler(
   getChat: () => ChatStore | null,
   auth: AuthStore | null,
   queueStore: PaneQueueStore,
+  getDashboard: () => DashboardController | null,
+  getAdvisor: () => LlmAdvisor | null,
+  getDecisionLog: () => DecisionLog | null,
 ) {
   return async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
     const method = req.method ?? 'GET';
@@ -581,6 +587,106 @@ function makeHttpHandler(
       } catch (err) {
         writeJson(res, 400, {
           error: 'answer_failed',
+          detail: err instanceof Error ? err.message : String(err),
+        });
+      }
+      return;
+    }
+
+    // 2026-04-21 — dashboard observation + action endpoints (agent-browser).
+    if (method === 'POST' && pathname === '/api/orchestrator/snapshot') {
+      const dashboard = getDashboard();
+      if (!dashboard) {
+        writeJson(res, 503, { error: 'dashboard_not_ready' });
+        return;
+      }
+      if (!dashboard.enabled) {
+        writeJson(res, 503, {
+          error: 'dashboard_disabled',
+          detail: 'THEORCHESTRA_NO_DASHBOARD_SNAPSHOT=1 is set',
+        });
+        return;
+      }
+      try {
+        const snap = await dashboard.snapshot();
+        writeJson(res, 200, snap);
+      } catch (err) {
+        writeJson(res, 500, {
+          error: 'snapshot_failed',
+          detail: err instanceof Error ? err.message : String(err),
+        });
+      }
+      return;
+    }
+
+    // 2026-04-21 — LLM advisor surface.
+    if (method === 'GET' && pathname === '/api/orchestrator/advisor') {
+      const advisor = getAdvisor();
+      if (!advisor) {
+        writeJson(res, 200, {
+          enabled: false,
+          provider: 'none',
+          modelId: 'none',
+          callsThisHour: 0,
+          cooldownsActive: 0,
+        });
+        return;
+      }
+      const stats = advisor.stats;
+      writeJson(res, 200, {
+        enabled: advisor.enabled,
+        provider: advisor.providerName,
+        modelId: advisor.modelId,
+        callsThisHour: stats.callsThisHour,
+        cooldownsActive: stats.cooldownsActive,
+      });
+      return;
+    }
+
+    if (method === 'GET' && pathname === '/api/orchestrator/decisions') {
+      const log = getDecisionLog();
+      if (!log) {
+        writeJson(res, 503, { error: 'decision_log_not_ready' });
+        return;
+      }
+      const limit = Number.parseInt(query.get('limit') ?? '50', 10) || 50;
+      writeJson(res, 200, { decisions: log.tail(Math.min(limit, 200)) });
+      return;
+    }
+
+    if (method === 'POST' && pathname === '/api/orchestrator/act') {
+      const dashboard = getDashboard();
+      if (!dashboard) {
+        writeJson(res, 503, { error: 'dashboard_not_ready' });
+        return;
+      }
+      if (!dashboard.enabled) {
+        writeJson(res, 503, { error: 'dashboard_disabled' });
+        return;
+      }
+      try {
+        const body = (await readJsonBody(req)) as { ref?: unknown; verb?: unknown };
+        const allowedVerbs: DashboardActVerb[] = ['click', 'hover', 'focus', 'dblclick'];
+        if (
+          typeof body.ref !== 'string' ||
+          typeof body.verb !== 'string' ||
+          !allowedVerbs.includes(body.verb as DashboardActVerb)
+        ) {
+          writeJson(res, 400, {
+            error: 'invalid_body',
+            detail: `ref (string) + verb (${allowedVerbs.join('|')}) required`,
+          });
+          return;
+        }
+        const result = await dashboard.act(body.ref, body.verb as DashboardActVerb);
+        if (result.ok) {
+          writeJson(res, 200, { ok: true, ref: body.ref, verb: body.verb });
+        } else {
+          writeJson(res, 500, { error: 'act_failed', detail: result.error });
+        }
+      } catch (err) {
+        writeJson(res, 400, {
+          error: 'act_failed',
           detail: err instanceof Error ? err.message : String(err),
         });
       }
@@ -996,27 +1102,60 @@ export interface StartServerOptions {
   chat?: ChatStore;
   auth?: AuthStore;
   queueStore?: PaneQueueStore;
+  dashboard?: DashboardController;
+  advisor?: LlmAdvisor;
+  decisionLog?: DecisionLog;
 }
 
 export async function startServer(
   manager: PtyManager,
   portOrOpts?: number | StartServerOptions,
-): Promise<{ server: http.Server; bus: EventBus; setChat: (chat: ChatStore) => void; auth: AuthStore | null }> {
+): Promise<{
+  server: http.Server;
+  bus: EventBus;
+  setChat: (chat: ChatStore) => void;
+  setDashboard: (d: DashboardController) => void;
+  setAdvisor: (a: LlmAdvisor) => void;
+  setDecisionLog: (l: DecisionLog) => void;
+  auth: AuthStore | null;
+}> {
   const opts: StartServerOptions =
     typeof portOrOpts === 'number' ? { port: portOrOpts } : portOrOpts ?? {};
   const port = opts.port ?? DEFAULT_DASHBOARD_PORT;
   const bus = opts.bus ?? new EventBus();
   const auth = opts.auth ?? null;
-  // Chat is optional — orchestrator may attach it later via setChat(). The
-  // route handler checks the captured variable at call time (via closure).
+  // Chat + dashboard are optional — orchestrator attaches them later via
+  // setChat / setDashboard. The route handler checks the captured variable
+  // at call time (via closure).
   let chatRef: ChatStore | null = opts.chat ?? null;
   const setChat = (c: ChatStore): void => {
     chatRef = c;
   };
+  let dashboardRef: DashboardController | null = opts.dashboard ?? null;
+  const setDashboard = (d: DashboardController): void => {
+    dashboardRef = d;
+  };
+  let advisorRef: LlmAdvisor | null = opts.advisor ?? null;
+  const setAdvisor = (a: LlmAdvisor): void => {
+    advisorRef = a;
+  };
+  let decisionLogRef: DecisionLog | null = opts.decisionLog ?? null;
+  const setDecisionLog = (l: DecisionLog): void => {
+    decisionLogRef = l;
+  };
   const queueStore = opts.queueStore ?? new PaneQueueStore();
   queueStore.attach(bus, manager);
   const server = http.createServer(
-    makeHttpHandler(manager, bus, () => chatRef, auth, queueStore),
+    makeHttpHandler(
+      manager,
+      bus,
+      () => chatRef,
+      auth,
+      queueStore,
+      () => dashboardRef,
+      () => advisorRef,
+      () => decisionLogRef,
+    ),
   );
   const wss = new WebSocketServer({ noServer: true });
 
@@ -1063,5 +1202,5 @@ export async function startServer(
     });
   });
 
-  return { server, bus, setChat, auth };
+  return { server, bus, setChat, setDashboard, setAdvisor, setDecisionLog, auth };
 }

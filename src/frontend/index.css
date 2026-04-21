@@ -2546,3 +2546,26 @@ body,
   }
 }
 
+
+/* PLAN-OF-TRUTH P4.2 — ReasoningPanel (activity sidebar). */
+.rp-body { display: flex; flex-direction: column; gap: 8px; padding: 6px 8px; }
+.rp-error { color: #ff7b7b; padding: 6px 8px; font-size: 12px; }
+.rp-loading, .rp-disabled, .rp-empty { color: #9a9a9a; padding: 6px 8px; font-size: 12px; line-height: 1.4; }
+.rp-disabled code { background: #222; padding: 1px 4px; border-radius: 3px; font-size: 11px; }
+.rp-status { display: flex; flex-wrap: wrap; gap: 4px; }
+.rp-pill { background: #1d3a5f; color: #bcd3f2; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-family: ui-monospace, monospace; }
+.rp-pill.small { font-size: 9px; padding: 1px 4px; }
+.rp-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.rp-item { background: #161a22; border: 1px solid #2a2f3a; border-radius: 4px; padding: 6px 8px; font-size: 11px; }
+.rp-row-head { display: flex; gap: 6px; align-items: center; margin-bottom: 3px; }
+.rp-ts { color: #7a8699; font-family: ui-monospace, monospace; font-size: 10px; }
+.rp-kind { color: #d0d4da; font-weight: 500; }
+.rp-exec.ok { color: #6ecf74; }
+.rp-exec.no { color: #ff7b7b; }
+.rp-reasoning { color: #b8bdc7; line-height: 1.35; font-size: 11px; }
+.rp-meta { display: flex; gap: 6px; margin-top: 3px; font-size: 10px; color: #7a8699; }
+.rp-meta-err { color: #ff9b5e; }
+
+/* PLAN-OF-TRUTH P4.3 — snapshot badge on orchestrator asks. */
+.omni-msg-snap { margin-top: 4px; font-size: 10px; font-family: ui-monospace, monospace; color: #7ba4d9; background: #0f1a2a; border: 1px solid #1d3a5f; padding: 2px 6px; border-radius: 3px; display: inline-block; }
+.omni-msg-snap.err { color: #ff9b5e; background: #2a1a0f; border-color: #6b3a1d; }

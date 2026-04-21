@@ -18,10 +18,21 @@ The dashboard has 4 tabs (Sessions, Live, Desktop, Spawn), a right activity side
 - **Translation layer** in the SSE handler maps `omni-watcher` events (`ts`, `event`, `details`) to the HTML's expected shape (`timestamp`, `type`, `output`). Adding new watcher events requires also adding them to the `typeMap` in `src/dashboard-server.cjs`.
 
 **Key docs**
-- `docs/PLAN-dashboard-v2.3.md` — v2.3 phased plan (shipped; Phase 5 Routines is user-gated)
-- `docs/PLAN-dashboard-v2.4-cleanup.md` — v2.4 backlog (drag-reorder, history scan, arrows, Routines scaffolding)
+- `docs/PLAN-OF-TRUTH.md` — **authoritative v3.0 plan.** Older plans archived under `docs/_archive/`.
 - `docs/a2a-protocol.md` — A2A envelope format
 - `vault/_roadmap.md` — live, orchestrator-consumed roadmap
+
+**Gate command:** `npm run v3:gate` runs the full PLAN-OF-TRUTH aggregator
+(baseline + advisor + dashboard-action + reasoning-panel). Must be green
+before any release cut.
+
+**Autonomous orchestration (v3.0):** the v3 orchestrator supports an optional
+LLM advisor that adjudicates content-class decisions (escalations) before
+they hit the user. Enable with `THEORCHESTRA_LLM_ADVISOR=1` — provider
+auto-picks Anthropic API (if `ANTHROPIC_API_KEY` set) else the Claude CLI
+on PATH. Advisor-attested `dashboard_action`s (click/hover/focus/dblclick)
+fire as mechanics via agent-browser without user confirm. Per-pane cooldown
+30s, per-hour cap 60 calls, per-(verb,ref) UI cooldown 10s.
 
 ## How the orchestrator works
 

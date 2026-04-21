@@ -3,6 +3,7 @@ import { useSseEvents } from '../useSseEvents';
 import { OmniClaudePanel } from './OmniClaudePanel';
 import { A2APanel } from './A2APanel';
 import { EventsPanel } from './EventsPanel';
+import { ReasoningPanel } from './ReasoningPanel';
 
 /**
  * U3 — right activity sidebar. Three collapsible panels matching v2.x:
@@ -15,7 +16,7 @@ import { EventsPanel } from './EventsPanel';
  * U6 can port it if the user wants).
  */
 
-type PanelId = 'omni' | 'a2a' | 'events';
+type PanelId = 'omni' | 'reasoning' | 'a2a' | 'events';
 
 interface PanelSpec {
   id: PanelId;
@@ -24,6 +25,7 @@ interface PanelSpec {
 
 const PANELS: ReadonlyArray<PanelSpec> = [
   { id: 'omni', title: 'OmniClaude' },
+  { id: 'reasoning', title: 'Reasoning' },
   { id: 'a2a', title: 'A2A' },
   { id: 'events', title: 'Events' },
 ];
@@ -33,6 +35,7 @@ export function ActivitySidebar() {
   const [collapsed, setCollapsed] = useState<boolean>(false);
   const [panelOpen, setPanelOpen] = useState<Record<PanelId, boolean>>({
     omni: true,
+    reasoning: true,
     a2a: true,
     events: true,
   });
@@ -110,6 +113,7 @@ export function ActivitySidebar() {
               {open && (
                 <div className="as-panel-body">
                   {p.id === 'omni' && <OmniClaudePanel />}
+                  {p.id === 'reasoning' && <ReasoningPanel />}
                   {p.id === 'a2a' && <A2APanel events={events} />}
                   {p.id === 'events' && <EventsPanel events={events} />}
                 </div>

@@ -27,7 +27,9 @@ import { SafetyState, classifyAction, type ClassifierContext } from './classifie
 import { proposeActions, type RuleConfig } from './rules.js';
 import { DecisionLog } from './decision-log.js';
 import { ChatStore } from './chat.js';
-import type { Action, Classification, DecisionRecord } from './types.js';
+import type { DashboardController } from './dashboard-controller.js';
+import type { LlmAdvisor } from './llm-advisor.js';
+import type { Action, ActionAttestation, Classification, DecisionRecord } from './types.js';
 
 export interface ExecutorOptions {
   /** Path to vault/_orchestrator-config.md for denylist reads. */
@@ -42,6 +44,18 @@ export interface ExecutorOptions {
   now?: () => number;
   /** Optional Telegram pusher — wired into the ChatStore for ask() notifications. */
   telegram?: TelegramPusher;
+  /**
+   * Optional dashboard controller. If present, every orchestrator-originated
+   * `ask()` attaches an agent-browser snapshot of the dashboard asynchronously,
+   * and `dashboard_action` actions become dispatchable.
+   */
+  dashboard?: DashboardController;
+  /**
+   * Optional LLM advisor. When enabled, content-class decisions are routed
+   * through the advisor first. The advisor can downgrade content → mechanic,
+   * propose a `dashboard_action`, escalate, or no-op. See llm-advisor.ts.
+   */
+  advisor?: LlmAdvisor;
 }
 
 export interface OrchestratorHandles {
@@ -49,6 +63,8 @@ export interface OrchestratorHandles {
   chat: ChatStore;
   log: DecisionLog;
   safety: SafetyState;
+  dashboard?: DashboardController;
+  advisor?: LlmAdvisor;
   /** For gate tests — inject an SSE event as if it had arrived from the bus. */
   _dispatchForTest: (event: SseEvent) => Promise<DecisionRecord[]>;
 }
@@ -60,7 +76,14 @@ export function startOrchestrator(
 ): OrchestratorHandles {
   const safety = new SafetyState();
   const log = new DecisionLog(opts.decisionsDir);
-  const chat = new ChatStore(bus, opts.telegram);
+  // Pass the dashboard controller as a snapshot provider so every ask()
+  // attaches a dashboard a11y snapshot asynchronously. If no controller was
+  // given (or it's disabled), ChatStore simply never fires the provider.
+  const snapshotProvider =
+    opts.dashboard && opts.dashboard.enabled
+      ? () => opts.dashboard!.snapshot()
+      : undefined;
+  const chat = new ChatStore(bus, opts.telegram, snapshotProvider);
 
   const projectOf = (sessionId: SessionId): string | null => {
     const rec = manager.get(sessionId);
@@ -75,7 +98,11 @@ export function startOrchestrator(
     now: opts.now,
   };
 
-  async function dispatch(action: Action, classification: Classification): Promise<boolean> {
+  async function dispatch(
+    action: Action,
+    classification: Classification,
+    currentRecord: DecisionRecord,
+  ): Promise<boolean> {
     if (classification.verdict === 'blocked') return false;
     if (classification.verdict === 'content') {
       if (action.kind === 'escalate_to_user') {
@@ -121,6 +148,46 @@ export function startOrchestrator(
         });
         return true;
       }
+      case 'dashboard_action': {
+        if (!opts.dashboard || !opts.dashboard.enabled) {
+          return false;
+        }
+        if (action.verb === 'snapshot') {
+          opts.dashboard.snapshot().catch(() => {});
+          return true;
+        }
+        if (!action.ref) return false;
+        // Pre-snapshot refs count is cheap if a recent snapshot exists via
+        // the advisor path. We attach post-snapshot fields by mutating the
+        // record AFTER the async act completes. The record itself has been
+        // log.append()'d already — but the in-memory ring still holds the
+        // same object reference, so mutation shows up on /api/decisions.
+        const verb = action.verb as 'click' | 'hover' | 'focus' | 'dblclick';
+        (async () => {
+          const preSnap = await opts.dashboard!.snapshot().catch(() => null);
+          const actResult = await opts.dashboard!.act(action.ref!, verb);
+          const postSnap = actResult.ok
+            ? await new Promise<Awaited<ReturnType<typeof opts.dashboard.snapshot>> | null>((r) =>
+                setTimeout(() => opts.dashboard!.snapshot().then(r).catch(() => r(null)), 1500),
+              )
+            : null;
+          currentRecord.metadata = {
+            ...(currentRecord.metadata ?? {}),
+            act_ok: actResult.ok,
+            act_error: actResult.ok ? undefined : actResult.error,
+            pre_refs_count: preSnap?.refsCount,
+            post_refs_count: postSnap?.refsCount,
+            pre_snapshot_at: preSnap?.capturedAt,
+            post_snapshot_at: postSnap?.capturedAt,
+          };
+          if (!actResult.ok) {
+            process.stderr.write(
+              `[orchestrator] dashboard_action ${verb} ${action.ref} failed: ${actResult.error}\n`,
+            );
+          }
+        })().catch(() => {});
+        return true;
+      }
       case 'no_op':
         return true;
       case 'kill':
@@ -136,11 +203,73 @@ export function startOrchestrator(
     }
   }
 
+  async function maybeReviseWithAdvisor(
+    event: SseEvent,
+    proposed: Action,
+    baselineVerdict: Classification['verdict'],
+  ): Promise<Action> {
+    // Only invoke on content-class baseline decisions. Mechanics go through
+    // as-is (advisor would add latency + cost with nothing to gain).
+    if (!opts.advisor || !opts.advisor.enabled) return proposed;
+    if (baselineVerdict !== 'content') return proposed;
+
+    const sid =
+      'sessionId' in proposed && proposed.sessionId ? proposed.sessionId : null;
+    const paneTail = sid ? manager.renderedTail(sid, 50) : [];
+    const snapshot = opts.dashboard && opts.dashboard.enabled ? await opts.dashboard.snapshot() : null;
+    const recentDecisions = log.tail(20);
+
+    const verdict = await opts.advisor.advise({
+      event,
+      proposedAction: proposed,
+      paneTail,
+      snapshot,
+      recentDecisions,
+    });
+
+    const attestation: ActionAttestation = {
+      by: 'llm-advisor',
+      reasoning: verdict.reasoning,
+      model: verdict.model,
+      latencyMs: verdict.latencyMs,
+    };
+
+    // Apply verdict. For any error path the advisor already falls back to
+    // 'content' with error metadata — we thread that back as the original
+    // proposed action (rule-engine default).
+    if (verdict.error) return proposed;
+
+    switch (verdict.verdict) {
+      case 'mechanic':
+        // Advisor endorses the rule-proposed action as-is; keep it but tag.
+        return { ...proposed, attestation };
+      case 'content':
+        // Advisor agrees we should escalate.
+        return proposed;
+      case 'no_op':
+        return { kind: 'no_op', reason: `advisor no_op: ${verdict.reasoning}`, attestation };
+      case 'dashboard_action':
+        if (!verdict.ref || !verdict.actVerb) return proposed;
+        return {
+          kind: 'dashboard_action',
+          verb: verdict.actVerb,
+          ref: verdict.ref,
+          sessionId: sid,
+          reason: verdict.reasoning,
+          attestation,
+        };
+    }
+  }
+
   async function handle(event: SseEvent): Promise<DecisionRecord[]> {
     const now = (opts.now ?? Date.now)();
     const actions = proposeActions(event, manager, opts.rules);
     const records: DecisionRecord[] = [];
-    for (const action of actions) {
+    for (const proposed of actions) {
+      // Ask the advisor FIRST (before classifying) if the baseline rule-engine
+      // verdict would be 'content'. The advisor can revise the Action.
+      const baseline = classifyAction(proposed, safety, ctx);
+      const action = await maybeReviseWithAdvisor(event, proposed, baseline.verdict);
       const classification = classifyAction(action, safety, ctx);
       const record: DecisionRecord = {
         ts: new Date(now).toISOString(),
@@ -152,7 +281,7 @@ export function startOrchestrator(
         executed: false,
       };
       try {
-        record.executed = await dispatch(action, classification);
+        record.executed = await dispatch(action, classification, record);
       } catch (err) {
         record.notes = `dispatch error: ${err instanceof Error ? err.message : String(err)}`;
       }
@@ -179,6 +308,8 @@ export function startOrchestrator(
     chat,
     log,
     safety,
+    dashboard: opts.dashboard,
+    advisor: opts.advisor,
     _dispatchForTest: handle,
   };
 }

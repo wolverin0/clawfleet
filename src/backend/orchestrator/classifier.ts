@@ -153,7 +153,7 @@ export function classifyAction(
   }
 
   // Rail 4 — denylist (project-level).
-  if ('sessionId' in action && action.sessionId !== null) {
+  if ('sessionId' in action && action.sessionId != null) {
     const project = context.projectOf(action.sessionId);
     if (project) {
       const denylist = readDenylist(context.configPath);
@@ -171,7 +171,7 @@ export function classifyAction(
   }
 
   // Rail 2 — loop detection across all actions on the same target.
-  if ('sessionId' in action && action.sessionId !== null) {
+  if ('sessionId' in action && action.sessionId != null) {
     const key = `${action.kind}|${action.sessionId}`;
     if (safety.isLooping(key, now)) {
       return { verdict: 'blocked', reason: 'loop detected (3x in 5min)' };
@@ -199,6 +199,22 @@ export function classifyAction(
       return { verdict: 'content', reason: 'kill_session is always content — user confirms' };
     case 'escalate_to_user':
       return { verdict: 'content', reason: 'explicit escalation' };
+    case 'dashboard_action':
+      // Read-only snapshot = mechanics. Any UI-mutating verb (click/etc.)
+      // touches user-visible state. Default: content (user-confirm).
+      // Exception: attested by the LLM advisor → mechanics, because the
+      // advisor is responsible for the call. The executor records the
+      // attestation reasoning on the decision record.
+      if (action.verb === 'snapshot') {
+        return { verdict: 'mechanics', reason: 'dashboard snapshot is read-only' };
+      }
+      if (action.attestation && action.attestation.by === 'llm-advisor') {
+        return {
+          verdict: 'mechanics',
+          reason: `dashboard ${action.verb} attested by llm-advisor`,
+        };
+      }
+      return { verdict: 'content', reason: `dashboard ${action.verb} needs user confirm` };
     case 'no_op':
       return { verdict: 'mechanics', reason: 'no-op' };
   }

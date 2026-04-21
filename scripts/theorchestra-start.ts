@@ -22,6 +22,8 @@ import {
   respawnDeadSessions,
 } from '../src/backend/session-manifest.js';
 import { startOrchestrator } from '../src/backend/orchestrator/executor.js';
+import { buildDashboardController } from '../src/backend/orchestrator/dashboard-controller.js';
+import { LlmAdvisor } from '../src/backend/orchestrator/llm-advisor.js';
 import { attachFromEnv as attachMemoryMasterBridge } from '../src/backend/memorymaster-bridge.js';
 import { attachAutoHandoffWatchdog } from '../src/backend/auto-handoff-watchdog.js';
 import {
@@ -172,7 +174,10 @@ async function main(): Promise<void> {
     console.log('[theorchestra] THEORCHESTRA_NO_AUTH=1 — dashboard is unauthenticated');
   }
 
-  const { server, bus, setChat } = await startServer(manager, { port, auth: authStore ?? undefined });
+  const { server, bus, setChat, setDashboard, setAdvisor, setDecisionLog } = await startServer(
+    manager,
+    { port, auth: authStore ?? undefined },
+  );
 
   // Attach the Phase 3 event emitters. Each returns a disposer we'd call on
   // shutdown; we just drop them for now (process exit tears everything down).
@@ -199,6 +204,44 @@ async function main(): Promise<void> {
     console.log('[theorchestra] Telegram push disabled (TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID unset)');
   }
 
+  // 2026-04-21 — dashboard controller (agent-browser). Built AFTER the HTTP
+  // server is listening so snapshot/open sees a real dashboard. Warm-up is
+  // fire-and-forget so backend boot doesn't stall on cold Chrome.
+  const dashboardToken = authStore?.read()?.token ?? null;
+  const dashboard = buildDashboardController({ port, token: dashboardToken });
+  setDashboard(dashboard);
+  if (dashboard.enabled) {
+    dashboard.warm().catch(() => {});
+    console.log(
+      '[theorchestra] dashboard controller enabled; agent-browser warming in background',
+    );
+  } else {
+    console.log('[theorchestra] dashboard controller disabled (THEORCHESTRA_NO_DASHBOARD_SNAPSHOT=1)');
+  }
+
+  // 2026-04-21 — LLM advisor (PLAN-OF-TRUTH P2). Opt-in: THEORCHESTRA_LLM_ADVISOR=1.
+  // When enabled, content-class decisions are routed through the advisor
+  // before the classifier. Advisor is chosen at construction time (Anthropic
+  // API if ANTHROPIC_API_KEY set, else Claude CLI if on PATH).
+  const advisorEnabled = process.env.THEORCHESTRA_LLM_ADVISOR === '1';
+  const advisor = new LlmAdvisor({
+    enabled: advisorEnabled,
+    manager,
+    dashboard,
+  });
+  if (advisor.enabled) {
+    console.log(
+      `[theorchestra] LLM advisor enabled (provider=${advisor.providerName}, model=${advisor.modelId})`,
+    );
+  } else if (advisorEnabled) {
+    console.log(
+      '[theorchestra] LLM advisor requested but no provider available (no ANTHROPIC_API_KEY, no `claude` on PATH)',
+    );
+  } else {
+    console.log('[theorchestra] LLM advisor disabled (set THEORCHESTRA_LLM_ADVISOR=1 to enable)');
+  }
+  setAdvisor(advisor);
+
   // Phase 7 — active orchestrator.
   const decisionsDir =
     process.env.THEORCHESTRA_DECISIONS_DIR ?? path.resolve('vault', '_orchestrator');
@@ -208,8 +251,11 @@ async function main(): Promise<void> {
     decisionsDir,
     configPath,
     telegram,
+    dashboard,
+    advisor,
   });
   setChat(orchestrator.chat);
+  setDecisionLog(orchestrator.log);
   console.log(`[theorchestra] orchestrator attached; decisions log at ${decisionsDir}`);
 
   // v3.0-native MemoryMaster bridge (opt-in via THEORCHESTRA_MEMORYMASTER_INBOX=1).
@@ -238,6 +284,11 @@ async function main(): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
     console.log(`[theorchestra] received ${signal}, shutting down…`);
+    // Close agent-browser session on shutdown so the headless Chrome goes
+    // away with us. Fire-and-forget; don't block the SIGTERM handler.
+    if (dashboard.enabled) {
+      dashboard.close().catch(() => {});
+    }
     if (skipKill) {
       console.log('[theorchestra] THEORCHESTRA_NO_KILL_ON_SHUTDOWN=1 — leaving PTYs as orphans');
     } else {

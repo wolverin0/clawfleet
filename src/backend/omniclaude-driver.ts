@@ -111,27 +111,43 @@ export function startOmniclaudeDriver(opts: OmniclaudeDriverOptions): Omniclaude
   const cwd = opts.cwd ?? defaultCwd();
   fs.mkdirSync(cwd, { recursive: true });
 
-  // Spawn omniclaude with --continue so it picks up prior session history
-  // across backend restarts. First run starts a fresh session.
+  // Spawn omniclaude. We'd like to pass --continue so cross-restart
+  // conversation history resumes, BUT `claude --continue` with no prior
+  // session exits immediately with code 1 ("No conversation found to
+  // continue"). We detect first-run via a sentinel file; subsequent boots
+  // use --continue.
+  //
   // Windows: `claude` is a .cmd wrapper, so it must be spawned via
-  // `cmd.exe /c claude --continue` — direct spawn gets "Cannot create
-  // process, error code: 2" from node-pty. POSIX: direct is fine.
+  // `cmd.exe /c claude` — direct spawn gets "Cannot create process, error
+  // code: 2" from node-pty. POSIX: direct is fine.
+  const sentinelPath = path.join(cwd, '.bootstrapped');
+  const useContinue = fs.existsSync(sentinelPath);
+  const claudeArgs = useContinue ? ['--continue'] : [];
+  console.log(
+    `[omniclaude] spawning with ${useContinue ? '--continue (resuming prior session)' : 'fresh session (first boot)'}`,
+  );
   let rec;
   try {
     const spawnOpts = IS_WINDOWS
       ? {
           cli: 'cmd.exe',
-          args: ['/c', 'claude', '--continue'],
+          args: ['/c', 'claude', ...claudeArgs],
           cwd,
           tabTitle: 'omniclaude',
         }
       : {
           cli: 'claude',
-          args: ['--continue'],
+          args: claudeArgs,
           cwd,
           tabTitle: 'omniclaude',
         };
     rec = opts.manager.spawn(spawnOpts);
+    // Write the sentinel so next boot uses --continue.
+    try {
+      fs.writeFileSync(sentinelPath, `first boot: ${new Date().toISOString()}\n`, 'utf-8');
+    } catch {
+      /* non-fatal */
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[omniclaude] spawn failed: ${msg}`);

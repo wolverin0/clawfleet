@@ -616,7 +616,9 @@ function makeHttpHandler(
           if (detail && detail.status !== 'exited') {
             const prompt = `[USER_MESSAGE from dashboard]\n${body.text}\nRespond with MCP tool calls + a DECISION line.`;
             try {
-              queueStore.enqueue(omniSid, prompt);
+              // Jump the queue — user missions must not be starved behind
+              // pane_idle event backlog. See queue-starvation root cause doc.
+              queueStore.enqueueFront(omniSid, prompt);
               enqueued = true;
               // If omniclaude is already idle, the queue's pane_idle subscriber
               // won't fire (no transition). Kick the drain manually so the

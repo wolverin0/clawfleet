@@ -19,21 +19,50 @@ Not a real product. A **smoke-test deliverable**: enough HTML + CSS + a companio
 
 - **design-systems / styling engineer** — persona best suited to design tokens + CSS. Deliverable: `sliders.css` — a standalone CSS file defining default values for the custom properties, a palette, and slider thumb styling. Under 60 lines. Meant to be included with a stub `<link>` in `landing.html` as a progressive-enhancement layer.
 
-- **reviewer** — persona best suited for code/design review. MUST wait for both files above to exist before starting. Deliverable: `review.md` in the cwd with:
+- **reviewer** — persona best suited for code/design review. Does NOT bash-poll the filesystem. Waits on **A2A envelopes** from its two siblings (see Coordination below). Deliverable: `review.md` in the cwd with:
   - ## Summary (2 sentences)
   - ## Design feedback (3 bullets: visual consistency, responsive behaviour, slider UX)
   - ## Technical feedback (2 bullets: maintainability, accessibility)
 
-## Coordination
+## Coordination (omniclaude is the conductor)
 
-Omniclaude chooses the three personas from `~/.claude/agents/` (72 available). Reasonable picks:
+Omniclaude chooses the three personas from `~/.claude/agents/`. Reasonable picks:
 - `coder` or a framework-specific frontend persona for the builder role
 - any designer / CSS-focused persona available, else `coder` again with a styling-only brief
 - `reviewer` for the review role
 
-Use `spawn_session` MCP with `persona`, `cwd=<project-cwd>`, `prompt=<role-specific task spec>`, and **`spawned_by_pane_id=<your-own-sid>`** so the `[PEER-PANE CONTEXT]` is prepended and each pane knows to report back via A2A to you.
+### Spawn protocol
 
-Peers should emit `[A2A from pane-<self> to pane-<you> | corr=<their-role> | type=result]` with the filename + byte count when their deliverable exists.
+Every spawn uses `mcp__wezbridge__spawn_session` with:
+- `persona`, `cwd=<project-cwd>`, `prompt=<role-specific task>`
+- **`spawned_by_pane_id=<your-own-omniclaude-sid>`** (non-negotiable — without it the `[PEER-PANE CONTEXT]` is NOT injected and the pane has no way to A2A back)
+- `dangerously_skip_permissions: true`
+
+### Envelope protocol (rewrites the PRD's reviewer spec)
+
+**Frontend + styling** — append to each of their prompts:
+```
+When your deliverable is complete, emit:
+  [A2A from pane-<YOUR_SID> to pane-<COORDINATOR_SID> | corr=<role> | type=result]
+  wrote <filename> (<bytes> bytes)
+Then send_key enter. Then stop.
+```
+
+**Reviewer** — append to its prompt (omniclaude knows the FRONTEND_SID + STYLING_SID by the time it spawns the reviewer):
+```
+You are the reviewer. Do NOT read the filesystem yet.
+Wait for these two envelopes on your OWN scrollback:
+  [A2A from pane-<FRONTEND_SID> ... | type=result]
+  [A2A from pane-<STYLING_SID>  ... | type=result]
+Poll read_output({session_id: "<YOUR_SID>", lines: 50}) every 30s until both
+envelopes are present. Only THEN use the Read tool on landing.html + sliders.css
+and write review.md. After saving, emit:
+  [A2A from pane-<YOUR_SID> to pane-<COORDINATOR_SID> | corr=reviewer | type=result]
+  wrote review.md
+Then stop.
+```
+
+Omniclaude watches its own scrollback for the three `type=result` envelopes. When all three land, emit `DECISION: prd-orchestration-complete — testproject-landingpage` and stop.
 
 ## Constraints
 

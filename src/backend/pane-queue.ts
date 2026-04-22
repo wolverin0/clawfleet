@@ -35,6 +35,22 @@ export class PaneQueueStore {
     return this.snapshot(sessionId);
   }
 
+  /**
+   * Push text onto the HEAD of the session's queue — for high-priority
+   * entries (e.g. user missions via tell-omni) that must jump the line ahead
+   * of event-driven noise like `pane_idle` no_ops. Normal event prompts use
+   * enqueue(); user-authored missions use enqueueFront() so they aren't
+   * starved behind a backlog.
+   */
+  enqueueFront(sessionId: SessionId, text: string): QueueSnapshot {
+    const trimmed = text.trim();
+    if (!trimmed) throw new Error('text is required');
+    const existing = this.queues.get(sessionId) ?? [];
+    existing.unshift({ text: trimmed, enqueued_at: new Date().toISOString() });
+    this.queues.set(sessionId, existing);
+    return this.snapshot(sessionId);
+  }
+
   snapshot(sessionId: SessionId): QueueSnapshot {
     return {
       session_id: sessionId,

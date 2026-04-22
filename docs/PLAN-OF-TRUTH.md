@@ -438,10 +438,66 @@ two-project test: feature-rich todo app (Path A) + landing-page designer
 ### 9.F Release
 - [ ] **P9.F1** Commit + tag `v3.1.0-rc.4` (below).
 
+## PHASE 10 — Context hygiene (project-briefer + delegator)
+
+Motivated by the 2026-04-22 gate decision log: omniclaude suppressed events
+for project B citing constraints that were about project A. Root cause:
+no per-project context pull before reasoning. Fix is two pieces, no core
+backend/MCP code changes.
+
+### 10.A Briefer subagent
+- [x] **P10.A1** Create `~/.claude/agents/project-briefer.md` — one-shot
+      Task subagent that reads AGENTS.md / CLAUDE.md / monitoring.md /
+      GRAPH_REPORT.md + calls `mcp__memorymaster__query_for_context`
+      scoped to `project:<basename>` + optional Serena symbols overview.
+      Returns ONE markdown block ≤1500 tokens. Model: haiku. Tools:
+      Read, Glob, Grep, Bash.
+
+### 10.B Delegation heuristic
+- [x] **P10.B1** Extend `vault/_omniclaude/CLAUDE.md` with a new
+      `## Context hygiene (briefer + delegator)` section. Encodes the
+      4-case decision table: same-project-trivial (inline reason),
+      diff-project-trivial (call briefer + inline), diff-project-non-trivial
+      (delegate to fresh peer with briefing pre-packed), own-ctx≥50%
+      (self-handoff).
+
+### 10.C Fixture + gate
+- [x] **P10.C1** `tests/testproject-briefer-probe/` with `AGENTS.md`
+      + `monitoring.md` containing distinctive tokens (Flask, AUTH-001,
+      auth_token_expiring) the gate asserts on.
+- [x] **P10.C2** `scripts/v3-briefer-behavior-gate.ts` — 2 scenarios:
+      (1) briefer agent file parses with required frontmatter;
+      (2) end-to-end: `tell-omni` asks omniclaude to brief itself on
+      the fixture; poll decisions log for a DECISION citing both
+      "testproject-briefer-probe" and a distinctive fixture token
+      within 4 min. Standalone runner, not wired into `npm run v3:gate`.
+
+### 10.D MCP dependency documentation
+- [x] **P10.D1** Context hygiene section in omniclaude's CLAUDE.md notes
+      that `mcp__memorymaster__*` and `mcp__serena__*` are expected to
+      be available via user-global `~/.claude/.mcp.json` (confirmed
+      present on the target dev machine). The briefer degrades to
+      file-reads only if either MCP is missing; it says so in its own
+      output rather than silently producing a thin brief.
+
+### 10.E Verify
+- [x] **P10.E1** `npx tsc --noEmit` clean after P10.A + P10.C.
+- [ ] **P10.E2** `npx tsx scripts/v3-briefer-behavior-gate.ts` → 2/2 PASS.
+
+### 10.F Out of scope
+- Automatic pre-spawn briefing hook in `spawn_session` path (omniclaude
+  decides per case; if it matters it calls the briefer and threads the
+  result into the spawn prompt).
+- Repomix / GitNexus wiring into omniclaude's scoped `.mcp.json`
+  (deferred; add when briefer proves too shallow).
+- UI surface for "show me the briefing for project X."
+- Fixing the sc4/sc6/sc7 deliverables regression from the v3.1.0-rc.4
+  rerun — separate phase (P11, TBD).
+
 ## Execution order
 
-P0 → P1 → P2 → P3 → P4 → P5 → P6 → P7 → P8 → P9. No skipping. If a phase
-fails verify, fix THAT phase before advancing. If a new requirement
+P0 → P1 → P2 → P3 → P4 → P5 → P6 → P7 → P8 → P9 → P10. No skipping. If a
+phase fails verify, fix THAT phase before advancing. If a new requirement
 surfaces mid-execution, write it into this file first, then implement.
 
 ## Drift guard

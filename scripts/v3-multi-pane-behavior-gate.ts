@@ -560,45 +560,51 @@ async function scenarioDependencySequencing(
 
 // ─── SCENARIO 5 — omniclaude-driven spawn (landingpage) ───────────────────
 
+interface OmniScenarioOutcome {
+  result: ScenarioResult;
+  teamSpawned: boolean;
+}
+
 async function scenarioOmniclaudeDriven(
   port: number,
   token: string,
   omniSid: string,
-): Promise<ScenarioResult> {
+): Promise<OmniScenarioOutcome> {
   const name = '5 — omniclaude reads PRD + spawns landingpage team';
   const t0 = Date.now();
 
   const before = await listSessionsIncludingOmni(port, token);
   const beforePersonaCount = before.filter((s) => s.persona).length;
 
-  // Tell omniclaude to read the PRD file and spawn a 3-person team.
-  const prdPath = path.join(LANDING_DIR, 'prd.md');
-  const prompt = `Read the PRD at this path: ${prdPath.replace(/\\/g, '/')}
+  // Clear stale deliverables so scenario 7 can measure cleanly.
+  await clearDeliverables(LANDING_DIR, ['landing.html', 'sliders.css', 'review.md']);
 
-Then spawn a 3-person team using the spawn_session MCP tool. For EACH role in the PRD:
-  - persona: pick one from ~/.claude/agents/ (good choices: coder, reviewer, code-review-swarm, analyze-code-quality)
-  - prompt: the role's exact task spelled out in the PRD
-  - cwd: "${LANDING_DIR.replace(/\\/g, '/')}"
-  - spawned_by_pane_id: "${omniSid}" (that is YOUR sid; pass it so peers can report back to you)
-  - dangerously_skip_permissions: true
+  // Terse prompt — the full orchestration protocol lives in omniclaude's
+  // CLAUDE.md under "Mission: orchestrate a PRD". This just kicks it off.
+  const prdPath = path.join(LANDING_DIR, 'prd.md').replace(/\\/g, '/');
+  const prompt = `Mission: orchestrate the PRD at ${prdPath}
 
-Call spawn_session THREE times in a row, one per role. Report the three pane_ids you got back in one line.
-
-Do it now. Do not ask for clarification. Do not wait.`;
+Follow the "Mission: orchestrate a PRD" workflow in your CLAUDE.md exactly.
+Your own sid is ${omniSid} — pass it as spawned_by_pane_id on every spawn.
+Do it now. Report back via DECISION line.`;
 
   try {
     await tellOmni(port, token, prompt);
   } catch (err) {
     return {
-      name,
-      verdict: 'FAIL',
-      detail: `tell-omni failed: ${err instanceof Error ? err.message : String(err)}`,
-      seconds: (Date.now() - t0) / 1000,
+      result: {
+        name,
+        verdict: 'FAIL',
+        detail: `tell-omni failed: ${err instanceof Error ? err.message : String(err)}`,
+        seconds: (Date.now() - t0) / 1000,
+      },
+      teamSpawned: false,
     };
   }
 
-  // Wait up to 5 minutes for omniclaude to reason + spawn 3 panes with personas.
-  const deadline = Date.now() + 5 * 60 * 1000;
+  // Wait up to 6 min for omniclaude to reason + spawn 3 panes with personas
+  // AND thread spawned_by_pane_id through (so peer ctx is injected).
+  const deadline = Date.now() + 6 * 60 * 1000;
   while (Date.now() < deadline) {
     await wait(10_000);
     const now = await listSessionsIncludingOmni(port, token);
@@ -608,10 +614,13 @@ Do it now. Do not ask for clarification. Do not wait.`;
     if (newPersonaPanes.length >= 3) {
       const personas = newPersonaPanes.map((p) => p.persona).join(',');
       return {
-        name,
-        verdict: 'PASS',
-        detail: `omniclaude spawned ${newPersonaPanes.length} persona panes: ${personas}`,
-        seconds: (Date.now() - t0) / 1000,
+        result: {
+          name,
+          verdict: 'PASS',
+          detail: `omniclaude spawned ${newPersonaPanes.length} persona panes: ${personas}`,
+          seconds: (Date.now() - t0) / 1000,
+        },
+        teamSpawned: true,
       };
     }
   }
@@ -619,9 +628,60 @@ Do it now. Do not ask for clarification. Do not wait.`;
   const final = await listSessionsIncludingOmni(port, token);
   const afterPersonaCount = final.filter((s) => s.persona).length;
   return {
+    result: {
+      name,
+      verdict: 'SKIP',
+      detail: `omniclaude did not spawn ≥3 persona panes in 6min (persona panes ${beforePersonaCount} → ${afterPersonaCount})`,
+      seconds: (Date.now() - t0) / 1000,
+    },
+    teamSpawned: false,
+  };
+}
+
+// ─── SCENARIO 7 — omniclaude-spawned team deliverables land ───────────────
+
+async function scenarioOmniclaudeDeliverables(): Promise<ScenarioResult> {
+  const name = '7 — omniclaude team deliverables land (landingpage)';
+  const t0 = Date.now();
+  // Generous 12-min budget — the whole team needs to complete, including
+  // reviewer waiting for A2A envelopes from siblings before starting its work.
+  const deadline = Date.now() + 12 * 60 * 1000;
+  const checks = [
+    { file: 'landing.html', minBytes: 500, pattern: /<(section|div|header|main)/i },
+    { file: 'sliders.css', minBytes: 200, pattern: /:root|--[a-z]|input\[type=.range.\]/i },
+    { file: 'review.md', minBytes: 200, pattern: /summary|design|technical|feedback|review/i },
+  ];
+
+  while (Date.now() < deadline) {
+    const statuses = checks.map((c) => fileExistsWithBytes(path.join(LANDING_DIR, c.file), c.minBytes));
+    if (statuses.every((s) => s.exists)) break;
+    await wait(15_000);
+  }
+
+  const missing: string[] = [];
+  const shallow: string[] = [];
+  for (const c of checks) {
+    const p = path.join(LANDING_DIR, c.file);
+    const s = fileExistsWithBytes(p, c.minBytes);
+    if (!s.exists) {
+      missing.push(`${c.file} (size=${s.bytes})`);
+      continue;
+    }
+    const content = await fsp.readFile(p, 'utf-8');
+    if (!c.pattern.test(content)) shallow.push(`${c.file} lacks expected keywords`);
+  }
+  if (missing.length === 0 && shallow.length === 0) {
+    return {
+      name,
+      verdict: 'PASS',
+      detail: `landing.html + sliders.css + review.md all present with expected content`,
+      seconds: (Date.now() - t0) / 1000,
+    };
+  }
+  return {
     name,
-    verdict: 'SKIP',
-    detail: `omniclaude did not spawn ≥3 persona panes in 5min (went from ${beforePersonaCount} → ${afterPersonaCount} persona-bearing panes)`,
+    verdict: 'FAIL',
+    detail: `missing: ${missing.join(', ') || 'none'}; shallow: ${shallow.join(', ') || 'none'}`,
     seconds: (Date.now() - t0) / 1000,
   };
 }
@@ -770,10 +830,26 @@ async function main(): Promise<void> {
       });
     }
 
-    console.log('\n[5/6] omniclaude-driven spawn (landingpage, long up to 5min)...');
-    const r5 = await scenarioOmniclaudeDriven(port, token, omniSid);
-    results.push(r5);
-    console.log(`  [${r5.verdict}] ${r5.detail} (${r5.seconds.toFixed(1)}s)`);
+    console.log('\n[5/7] omniclaude-driven spawn (landingpage, up to 6min)...');
+    const r5pack = await scenarioOmniclaudeDriven(port, token, omniSid);
+    results.push(r5pack.result);
+    console.log(
+      `  [${r5pack.result.verdict}] ${r5pack.result.detail} (${r5pack.result.seconds.toFixed(1)}s)`,
+    );
+
+    if (r5pack.teamSpawned) {
+      console.log('\n[7/7] omniclaude team deliverables land (long, up to 12min)...');
+      const r7 = await scenarioOmniclaudeDeliverables();
+      results.push(r7);
+      console.log(`  [${r7.verdict}] ${r7.detail} (${r7.seconds.toFixed(1)}s)`);
+    } else {
+      results.push({
+        name: '7 — omniclaude team deliverables land',
+        verdict: 'SKIP',
+        detail: 'scenario 5 did not produce a team; deliverables check skipped',
+        seconds: 0,
+      });
+    }
   } catch (err) {
     console.error('[FATAL harness error]', err instanceof Error ? err.stack ?? err.message : err);
     console.error('---backend log tail---');

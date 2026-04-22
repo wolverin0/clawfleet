@@ -900,21 +900,41 @@ function makeHttpHandler(
           }
         }
 
-        // Fire the initial role prompts asynchronously. We wait 8s for Claude
-        // to finish its TUI boot (banner + `❯` prompt), then use writeAndSubmit
-        // which emits the text and the Enter as two separate PTY chunks (the
-        // two-chunk pattern that dodges ConPTY Enter-absorption, confirmed by
-        // v2.7 dogfood). If this respond-202-now-dispatch-later pattern breaks
-        // down we can poll for the ❯ ready signal later.
-        if (pendingPrompts.length > 0) {
-          setTimeout(() => {
-            for (const { sid, prompt } of pendingPrompts) {
-              manager.writeAndSubmit(sid, prompt, 300).catch((err: unknown) => {
-                const msg = err instanceof Error ? err.message : String(err);
-                console.error(`[prd-bootstrap] prompt dispatch to ${sid.slice(0, 8)} failed: ${msg}`);
-              });
+        // Fire the initial role prompts asynchronously. Wait per-pane for
+        // Claude's TUI to finish booting — banner render, then `❯` prompt
+        // transitions status from 'working' to 'idle'. Writing before that
+        // loses early input (ConPTY swallows during banner) and truncates
+        // long prompts, which is the P11 regression root cause: fixed 8s
+        // delay was too short for some Claude CLI cold boots on Windows.
+        //
+        // Per pane: poll statusDetail until status==='idle' OR 30s deadline;
+        // then writeAndSubmit. If deadline hits we fire anyway and log —
+        // that's still better than never sending at all.
+        for (const { sid, prompt } of pendingPrompts) {
+          void (async (): Promise<void> => {
+            const deadline = Date.now() + 30_000;
+            let lastStatus: string = 'unknown';
+            while (Date.now() < deadline) {
+              const detail = manager.statusDetail(sid);
+              if (!detail || detail.status === 'exited') {
+                console.error(`[prd-bootstrap] pane ${sid.slice(0, 8)} exited before prompt could be sent`);
+                return;
+              }
+              if (detail.status === 'idle') {
+                lastStatus = 'idle';
+                break;
+              }
+              lastStatus = detail.status;
+              await new Promise((r) => setTimeout(r, 500));
             }
-          }, 8_000);
+            if (lastStatus !== 'idle') {
+              console.warn(`[prd-bootstrap] pane ${sid.slice(0, 8)} not idle after 30s (status=${lastStatus}); firing anyway`);
+            }
+            await manager.writeAndSubmit(sid, prompt, 300).catch((err: unknown) => {
+              const msg = err instanceof Error ? err.message : String(err);
+              console.error(`[prd-bootstrap] prompt dispatch to ${sid.slice(0, 8)} failed: ${msg}`);
+            });
+          })();
         }
 
         writeJson(res, 201, { project: spec.project, cwd: spec.cwd, spawned });

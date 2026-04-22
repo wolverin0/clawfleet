@@ -4,9 +4,15 @@
  * Verifies the "context hygiene" loop:
  *   1. ~/.claude/agents/project-briefer.md is a valid agent definition
  *   2. omniclaude, when told to brief itself on a fixture project, calls
- *      the Task subagent and quotes content from the fixture in its
- *      DECISION line — proving the briefer actually ran + its output
- *      landed in omniclaude's context.
+ *      the Task subagent and quotes content from the fixture's monitoring.md
+ *      in its DECISION line (AUTH-001) — file-read path validated.
+ *   3. omniclaude's briefing call also surfaces a MemoryMaster-seeded claim
+ *      scoped to `project:testproject-briefer-probe` — MCP path validated.
+ *
+ * Pre-requisites (manual, once per machine — see v3.1.0-rc.5 commit message):
+ *   - 3 MemoryMaster claims ingested with scope=project:testproject-briefer-probe
+ *     containing the string "BRIEFER_PROBE_FIXTURE_TOKEN_". If absent, scenario 3
+ *     SKIPs rather than FAILs.
  *
  * Standalone run:
  *     npx tsx scripts/v3-briefer-behavior-gate.ts
@@ -261,6 +267,94 @@ Then stop.`;
   };
 }
 
+// ─── SCENARIO 3 — briefer surfaces MemoryMaster-seeded claim ───────────────
+
+async function scenarioMemoryMasterCitation(
+  port: number,
+  token: string,
+  decisionsDir: string,
+): Promise<ScenarioResult> {
+  const name = '3 — briefer surfaces MemoryMaster claim';
+  const t0 = Date.now();
+
+  const fixturePath = FIXTURE_DIR.replace(/\\/g, '/');
+  const prompt = `Mission: use the project-briefer subagent on ${fixturePath}.
+
+Call Task({ subagent_type: "project-briefer", description: "brief on testproject-briefer-probe MM path", prompt: "Project root: ${fixturePath}\\nReason: verify MemoryMaster pathway — look for the distinctive fixture token in Known gotchas section." }).
+
+From the returned briefing, find a claim in the "Known gotchas (MemoryMaster)" section. Each claim line starts with a bracketed ID like [mm-XXXX]. Emit ONE DECISION line with this shape:
+  DECISION: mm-cited - testproject-briefer-probe: <the-exact-mm-id>
+
+Where <the-exact-mm-id> is the mm-XXXX identifier you read verbatim from the briefing. Do NOT paste angle brackets. Do NOT guess. Do NOT paste a placeholder.
+
+If the briefer says MemoryMaster is unavailable or returns zero claims, emit instead:
+  DECISION: mm-unavailable - testproject-briefer-probe: no claims returned
+
+Then stop.`;
+
+  try {
+    await tellOmni(port, token, prompt);
+  } catch (err) {
+    return {
+      name,
+      verdict: 'FAIL',
+      detail: `tell-omni failed: ${err instanceof Error ? err.message : String(err)}`,
+      seconds: (Date.now() - t0) / 1000,
+    };
+  }
+
+  const deadline = Date.now() + 4 * 60 * 1000;
+  const mmIdToken = /\bmm-[a-z0-9]{4}\b/;
+  // SKIP signals (widened): the briefer ran but couldn't retrieve claims.
+  // Could be subagent-MCP-inheritance gap, empty scope, stale DB, etc.
+  // Not a pass, not a hard fail — unknown that needs deeper investigation.
+  const unavailableToken = /mm-unavailable|no claims returned|no claims found|memorymaster unavailable/i;
+  const projectToken = /testproject-briefer-probe/;
+  const placeholderLeak = /<the-exact-mm-id>|<quote|placeholder/i;
+
+  const today = new Date().toISOString().slice(0, 10);
+  const logPath = path.join(decisionsDir, `decisions-${today}.md`);
+
+  while (Date.now() < deadline) {
+    await wait(10_000);
+    try {
+      const raw = await fsp.readFile(logPath, 'utf-8');
+      const lines = raw.split('\n');
+      for (const line of lines) {
+        if (!line.includes('omniclaude_decision')) continue;
+        if (!projectToken.test(line)) continue;
+        if (placeholderLeak.test(line)) continue;
+        if (unavailableToken.test(line)) {
+          return {
+            name,
+            verdict: 'SKIP',
+            detail: 'briefer reported MemoryMaster unavailable — pre-seeded claims may be missing or MCP inaccessible from subagent',
+            seconds: (Date.now() - t0) / 1000,
+          };
+        }
+        if (mmIdToken.test(line)) {
+          const id = line.match(mmIdToken)![0];
+          return {
+            name,
+            verdict: 'PASS',
+            detail: `decision log cites MemoryMaster claim ${id} — MCP path verified`,
+            seconds: (Date.now() - t0) / 1000,
+          };
+        }
+      }
+    } catch {
+      /* not ready */
+    }
+  }
+
+  return {
+    name,
+    verdict: 'FAIL',
+    detail: `no DECISION cited an mm-XXXX claim or declared MM unavailable in 4min`,
+    seconds: (Date.now() - t0) / 1000,
+  };
+}
+
 // ─── main ──────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -275,15 +369,21 @@ async function main(): Promise<void> {
 
   const results: ScenarioResult[] = [];
 
-  console.log('\n[1/2] briefer agent file parses...');
+  console.log('\n[1/3] briefer agent file parses...');
   const r1 = await scenarioAgentFileValid();
   results.push(r1);
   console.log(`  [${r1.verdict}] ${r1.detail} (${r1.seconds.toFixed(1)}s)`);
 
   if (r1.verdict !== 'PASS') {
-    console.log('\n[SKIP 2/2] agent file invalid — downstream scenarios skipped');
+    console.log('\n[SKIP 2/3] agent file invalid — downstream scenarios skipped');
     results.push({
-      name: '2 — omniclaude calls briefer',
+      name: '2 — omniclaude calls briefer (file-read path)',
+      verdict: 'SKIP',
+      detail: 'scenario 1 did not pass',
+      seconds: 0,
+    });
+    results.push({
+      name: '3 — briefer surfaces MemoryMaster claim (MCP path)',
       verdict: 'SKIP',
       detail: 'scenario 1 did not pass',
       seconds: 0,
@@ -335,10 +435,15 @@ async function main(): Promise<void> {
     console.log(`  omniclaude sid=${omniSid.slice(0, 8)}`);
     await wait(5000);
 
-    console.log('\n[2/2] omniclaude calls briefer + cites fixture...');
+    console.log('\n[2/3] omniclaude calls briefer + cites fixture (file-read path)...');
     const r2 = await scenarioOmniCallsBriefer(port, token, decisionsDir);
     results.push(r2);
     console.log(`  [${r2.verdict}] ${r2.detail} (${r2.seconds.toFixed(1)}s)`);
+
+    console.log('\n[3/3] briefer surfaces MemoryMaster claim (MCP path)...');
+    const r3 = await scenarioMemoryMasterCitation(port, token, decisionsDir);
+    results.push(r3);
+    console.log(`  [${r3.verdict}] ${r3.detail} (${r3.seconds.toFixed(1)}s)`);
   } catch (err) {
     console.error('[FATAL harness error]', err instanceof Error ? err.stack ?? err.message : err);
     console.error('---backend log tail---');

@@ -1789,6 +1789,42 @@ body,
   overflow-y: auto;
 }
 
+.dwin-scrollback-popover {
+  position: absolute;
+  top: 36px;
+  right: 6px;
+  z-index: 30;
+  width: min(720px, calc(100vw - 40px));
+  max-height: min(70vh, 560px);
+  background: var(--bg-surface);
+  border: 1px solid var(--glass-border);
+  border-radius: 6px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.dwin-scrollback-pre {
+  flex: 1 1 auto;
+  min-height: 200px;
+  max-height: 420px;
+  overflow: auto;
+  margin: 0;
+  padding: 8px;
+  border-radius: 4px;
+  border: 1px solid var(--glass-border);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+
 .dwin-history-entry {
   padding: 6px;
   border-radius: 4px;
@@ -2601,3 +2637,38 @@ body,
 /* Finding #6 — reasoning-panel omni pill */
 .rp-pill.omni { background: #1e4a2c; color: #9ce3a7; }
 .rp-pill.ok { background: #1e4a2c; color: #9ce3a7; }
+
+/* Omni compose — direct user → omniclaude prompt */
+.omni-compose { display: flex; gap: 8px; align-items: center; }
+.omni-compose-input { flex: 1; background: #0f1117; border: 1px solid #2a2f3a; border-radius: 6px; padding: 10px 12px; color: #d0d4da; font-size: 13px; }
+.omni-compose-input:focus { outline: none; border-color: #1d3a5f; }
+.omni-send { padding: 10px 16px; background: #1d3a5f; color: #bcd3f2; border: 1px solid #2a4a6f; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; }
+.omni-send:hover:not(:disabled) { background: #254a75; }
+.omni-send:disabled { opacity: 0.5; cursor: not-allowed; }
+.omni-last-sent { font-size: 11px; padding: 6px 10px; border-radius: 4px; font-family: ui-monospace, monospace; }
+.omni-last-sent.ok { background: #0f1a2a; border: 1px solid #1e4a2c; color: #9ce3a7; }
+.omni-last-sent.warn { background: #2a1a0f; border: 1px solid #6b3a1d; color: #ffc9a0; }
+.omni-last-sent-text { color: #d0d4da; }
+
+/* Omni tab — fill the frame, scrollback grows */
+.omni-tab { flex: 1 1 auto; min-height: 0; height: 100%; overflow: hidden; }
+main .omni-tab { height: calc(100vh - 50px); box-sizing: border-box; }
+.omni-scrollback { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.omni-pre { flex: 1 1 auto; min-height: 200px; max-height: none; }
+
+/* Pragmatic fill: give the scrollback most of the viewport height. */
+.omni-pre { height: calc(100vh - 320px) !important; max-height: none !important; min-height: 300px !important; }
+
+/* Visible scrollback extent — make the box obvious when content is short */
+.omni-pre {
+  background: #0a0e14 !important;
+  border: 1px solid #3a4a6a !important;
+  box-shadow: inset 0 0 0 1px rgba(29, 58, 95, 0.3);
+}
+.omni-scrollback h3::after {
+  content: " · terminal snapshot";
+  color: #6b7a8f;
+  font-weight: 400;
+  font-size: 11px;
+  margin-left: 4px;
+}

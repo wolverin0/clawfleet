@@ -105,6 +105,8 @@ export function PaneCard({
   const [err, setErr] = useState<string | null>(null);
   const [handoffOpen, setHandoffOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [scrollbackOpen, setScrollbackOpen] = useState(false);
+  const [scrollbackLines, setScrollbackLines] = useState<string[] | null>(null);
   const [ctxOpen, setCtxOpen] = useState(false);
   const [ctxSources, setCtxSources] = useState<Set<string>>(new Set());
   const [ctxLines, setCtxLines] = useState(40);
@@ -234,6 +236,24 @@ export function PaneCard({
       setHistory(body.handoffs);
     } catch {
       setHistory([]);
+    }
+  };
+
+  const handleOpenScrollback = async (): Promise<void> => {
+    setScrollbackOpen(true);
+    setScrollbackLines(null);
+    try {
+      const res = await authedFetch(
+        `/api/sessions/${encodeURIComponent(session.sessionId)}/output?lines=500`,
+      );
+      if (!res.ok) {
+        setScrollbackLines([]);
+        return;
+      }
+      const body = (await res.json()) as { lines: string[] };
+      setScrollbackLines(body.lines ?? []);
+    } catch {
+      setScrollbackLines([]);
     }
   };
 
@@ -457,6 +477,18 @@ export function PaneCard({
         </button>
         <button
           type="button"
+          className="dwin-btn scrollback-btn"
+          onClick={(e) => {
+            e.stopPropagation();
+            void handleOpenScrollback();
+          }}
+          title="Full scrollback (last 500 lines)"
+          aria-label="Open full scrollback viewer"
+        >
+          📃
+        </button>
+        <button
+          type="button"
           className="dwin-btn auto-handoff-btn"
           onClick={(e) => {
             e.stopPropagation();
@@ -566,6 +598,58 @@ export function PaneCard({
             <button
               type="button"
               onClick={() => setHistoryOpen(false)}
+              className="dwin-btn"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {scrollbackOpen && (
+        <div
+          className="dwin-scrollback-popover"
+          onClick={(e) => e.stopPropagation()}
+          role="dialog"
+          aria-label="Full scrollback"
+        >
+          <div className="dwin-handoff-title">
+            Scrollback — {name} (last {scrollbackLines?.length ?? 0} lines)
+          </div>
+          <pre className="dwin-scrollback-pre" aria-live="polite">
+            {scrollbackLines === null
+              ? 'loading…'
+              : scrollbackLines.length === 0
+                ? '(no output yet)'
+                : scrollbackLines.join('\n')}
+          </pre>
+          <div className="dwin-handoff-actions">
+            <button
+              type="button"
+              onClick={() => {
+                if (scrollbackLines && scrollbackLines.length > 0) {
+                  void navigator.clipboard
+                    .writeText(scrollbackLines.join('\n'))
+                    .then(() => setFlash('scrollback copied'))
+                    .catch(() => setFlash('clipboard unavailable'));
+                }
+              }}
+              className="dwin-btn"
+              disabled={!scrollbackLines || scrollbackLines.length === 0}
+            >
+              Copy all
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleOpenScrollback()}
+              className="dwin-btn"
+              title="Refetch latest"
+            >
+              Refresh
+            </button>
+            <button
+              type="button"
+              onClick={() => setScrollbackOpen(false)}
               className="dwin-btn"
             >
               Close

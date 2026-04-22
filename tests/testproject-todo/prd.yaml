@@ -1,0 +1,88 @@
+project: testproject-todo
+cwd: G:\_OneDrive\OneDrive\Desktop\Py Apps\wezbridge\tests\testproject-todo
+roles:
+  - name: frontend
+    persona: coder
+    permission_mode: bypassPermissions
+    tab_title: todo-frontend
+    prompt: |
+      Your only deliverable is frontend.html inside your current working directory.
+
+      **Use the Write tool NOW** to save a minimal todo-list UI to frontend.html. Content:
+
+      <!DOCTYPE html>
+      <html>
+      <head><title>Todos</title><style>body{background:#111;color:#eee;font-family:sans-serif;padding:20px}ul{list-style:none;padding:0}li{background:#222;padding:8px;margin:4px 0}</style></head>
+      <body>
+      <h1>Todos</h1>
+      <input type="text" id="new-todo" placeholder="add..."><button onclick="add()">Add</button>
+      <ul id="todo-list"></ul>
+      <script>function add(){var v=document.getElementById('new-todo').value;if(!v)return;var li=document.createElement('li');li.textContent=v;document.getElementById('todo-list').appendChild(li);document.getElementById('new-todo').value='';}</script>
+      </body>
+      </html>
+
+      After saving, output exactly this DECISION line:
+      DECISION: deliverable — frontend.html complete.
+
+      Then stop. Do not edit anything else.
+
+  - name: backend
+    persona: dev-backend-api
+    permission_mode: bypassPermissions
+    tab_title: todo-backend
+    prompt: |
+      Your only deliverable is backend.py inside your current working directory.
+
+      **Use the Write tool NOW** to save this Flask API to backend.py:
+
+      from flask import Flask, jsonify, request
+      app = Flask(__name__)
+      TODOS = []
+
+      @app.route('/todos', methods=['GET'])
+      def list_todos():
+          return jsonify(TODOS)
+
+      @app.route('/todos', methods=['POST'])
+      def add_todo():
+          data = request.get_json(silent=True) or {}
+          TODOS.append({"text": data.get("text", "")})
+          return jsonify(TODOS[-1]), 201
+
+      if __name__ == '__main__':
+          app.run(port=5555)
+
+      After saving, output exactly:
+      DECISION: deliverable — backend.py complete.
+
+      Then stop.
+
+  - name: reviewer
+    persona: reviewer
+    permission_mode: bypassPermissions
+    tab_title: todo-reviewer
+    prompt: |
+      Your task is to review frontend.html and backend.py IN your current working directory, then write review.md.
+
+      **Use the Bash tool** to run this one-liner, which waits for both files to exist (up to 8 minutes) and then triggers the next step:
+
+      while [ ! -f frontend.html ] || [ ! -f backend.py ]; do sleep 10; done && echo BOTH_FILES_EXIST
+
+      Once you see "BOTH_FILES_EXIST" in the bash output, use the Read tool to read both files, then use the Write tool to save review.md with this exact structure (replace the bullets with real findings from the files you read):
+
+      ## Summary
+      Two-sentence description of what you reviewed.
+
+      ## Security findings
+      - finding 1 about input validation
+      - finding 2 about XSS or injection risk
+      - finding 3 about CSRF or auth
+
+      ## Quality findings
+      - finding 1 about code structure
+      - finding 2 about robustness
+
+      After review.md is saved, output exactly:
+      DECISION: deliverable — review.md complete.
+
+      Then stop.

@@ -386,11 +386,63 @@ behavior-level one.
 - [x] **P8.G3** Commit (below).
 - [x] **P8.G4** Tagged `v3.1.0-rc.3`.
 
+## PHASE 9 — Multi-pane PRD + persona smoke test
+
+Added 2026-04-22. Three flagship spec items (`FR-Carryover` #5 personas,
+#7 PRD-bootstrap, #8 peer-pane context) were wired but never end-to-end
+dogfooded at 3-pane scale with dependency sequencing. User requested a
+two-project test: feature-rich todo app (Path A) + landing-page designer
+(Path B). No budget/time constraint.
+
+### 9.A Test fixtures
+- [x] **P9.A1** `tests/testproject-todo/CLAUDE.md` + `prd.yaml` (3 roles:
+      frontend=coder, backend=dev-backend-api, reviewer=reviewer with bash
+      while-loop wait-then-write dependency gate).
+- [x] **P9.A2** `tests/testproject-landingpage/CLAUDE.md` + `prd.md`
+      (markdown PRD for omniclaude-reads-file Path B).
+
+### 9.B Behavior gate
+- [x] **P9.B1** `scripts/v3-multi-pane-behavior-gate.ts` — 6 scenarios,
+      count-before / act / wait / assert / count-after pattern.
+- [x] **P9.B2** `KEEP_ARTIFACTS=1` preserves tmp dir + on-disk
+      deliverables for audit.
+
+### 9.C Fixes discovered + shipped
+- [x] **P9.C1** FIXED: `POST /api/prd-bootstrap` was dropping
+      `role.prompt`. Added pending-prompts dispatch (8s delay +
+      writeAndSubmit) so spawned panes actually receive their task.
+      Shipped in `src/backend/ws-server.ts`.
+- [x] **P9.C2** FIXED: PRD-bootstrap now forces
+      `--dangerously-skip-permissions` on every role spawn so test runs
+      don't block on permission prompts.
+- [x] **P9.C3** PRD prompt-writing discipline: role prompts now include
+      explicit "Use the Write tool NOW" / "Use the Bash tool" imperatives
+      — without these Claude drafts in conversation without writing
+      files.
+
+### 9.D Live results
+- [x] **P9.D1** Gate run 2026-04-22: **5 PASS / 1 SKIP / 0 FAIL** (Path
+      B omniclaude-reasons-from-PRD SKIP, Path A fully verified).
+- [x] **P9.D2** Real deliverables on disk:
+      `tests/testproject-todo/frontend.html` (613B valid HTML todo UI),
+      `backend.py` (396B valid Flask API), `review.md` (1878B security +
+      quality review with 3+3 findings).
+- [x] **P9.D3** Artifacts archived at
+      `docs/screenshots/tests/multi-pane-2026-04-22/`.
+
+### 9.E Doc alignment
+- [x] **P9.E1** Dogfood log appended to `docs/v3.0-decisions.md`
+      addendum with scenario table + spec-compliance status.
+- [x] **P9.E2** This P9 section in PLAN-OF-TRUTH.
+
+### 9.F Release
+- [ ] **P9.F1** Commit + tag `v3.1.0-rc.4` (below).
+
 ## Execution order
 
-P0 → P1 → P2 → P3 → P4 → P5 → P6 → P7 → P8. No skipping. If a phase fails verify,
-fix THAT phase before advancing. If a new requirement surfaces mid-execution,
-write it into this file first, then implement.
+P0 → P1 → P2 → P3 → P4 → P5 → P6 → P7 → P8 → P9. No skipping. If a phase
+fails verify, fix THAT phase before advancing. If a new requirement
+surfaces mid-execution, write it into this file first, then implement.
 
 ## Drift guard
 

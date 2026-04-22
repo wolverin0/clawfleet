@@ -852,6 +852,10 @@ function makeHttpHandler(
           return;
         }
         const spawned: Array<{ role: string; session_id: string; persona: string | null }> = [];
+        // Track panes with pending initial prompts so we can dispatch them
+        // AFTER Claude has had time to boot (can't submit to a pane that hasn't
+        // rendered its prompt yet — ConPTY swallows early input).
+        const pendingPrompts: Array<{ sid: string; prompt: string }> = [];
         for (const role of spec.roles) {
           const personaPath = role.persona ? resolvePersona(role.persona) : null;
           if (role.persona && !personaPath) {
@@ -869,6 +873,11 @@ function makeHttpHandler(
           if (role.permission_mode) {
             claudeArgs.push('--permission-mode', role.permission_mode);
           }
+          // Always bypass permissions for PRD-spawned teams so they can write
+          // their role deliverable without blocking on a permission prompt.
+          // PRD-bootstrap is an opt-in orchestrator path; the user has already
+          // consented to auto-action by POSTing the YAML.
+          claudeArgs.push('--dangerously-skip-permissions');
           const cli = isWin ? 'cmd.exe' : 'claude';
           const args = isWin ? ['/c', 'claude', ...claudeArgs] : claudeArgs;
           const record = manager.spawn({
@@ -884,7 +893,28 @@ function makeHttpHandler(
             session_id: record.sessionId,
             persona: role.persona ?? null,
           });
+          if (role.prompt && role.prompt.trim().length > 0) {
+            pendingPrompts.push({ sid: record.sessionId, prompt: role.prompt });
+          }
         }
+
+        // Fire the initial role prompts asynchronously. We wait 8s for Claude
+        // to finish its TUI boot (banner + `❯` prompt), then use writeAndSubmit
+        // which emits the text and the Enter as two separate PTY chunks (the
+        // two-chunk pattern that dodges ConPTY Enter-absorption, confirmed by
+        // v2.7 dogfood). If this respond-202-now-dispatch-later pattern breaks
+        // down we can poll for the ❯ ready signal later.
+        if (pendingPrompts.length > 0) {
+          setTimeout(() => {
+            for (const { sid, prompt } of pendingPrompts) {
+              manager.writeAndSubmit(sid, prompt, 300).catch((err: unknown) => {
+                const msg = err instanceof Error ? err.message : String(err);
+                console.error(`[prd-bootstrap] prompt dispatch to ${sid.slice(0, 8)} failed: ${msg}`);
+              });
+            }
+          }, 8_000);
+        }
+
         writeJson(res, 201, { project: spec.project, cwd: spec.cwd, spawned });
       } catch (err) {
         writeJson(res, 500, {

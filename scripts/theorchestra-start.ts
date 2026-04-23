@@ -7,7 +7,54 @@
  */
 
 import * as path from 'node:path';
+import * as fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
+
+// ─── Boot-time env loading + sane defaults ─────────────────────────────────
+// "Just works" entrypoint: npm start loads .env.local from repo root and
+// enables omniclaude + safe-shutdown by default. Users can still override
+// via real env vars or explicit flags; this just removes the 700-flag
+// ceremony for the common case.
+function loadDotEnvLocal(): void {
+  const repoRoot = path.resolve(__dirname, '..');
+  const envFile = path.join(repoRoot, '.env.local');
+  if (!fs.existsSync(envFile)) return;
+  try {
+    const raw = fs.readFileSync(envFile, 'utf-8');
+    for (const line of raw.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq === -1) continue;
+      const key = trimmed.slice(0, eq).trim();
+      let value = trimmed.slice(eq + 1).trim();
+      // Strip surrounding quotes if present.
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1);
+      }
+      // .env.local does NOT override anything already set in real env —
+      // real env wins so CI / explicit overrides still work.
+      if (process.env[key] === undefined) process.env[key] = value;
+    }
+    console.log(`[theorchestra] loaded .env.local (${envFile})`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[theorchestra] failed to load .env.local: ${msg}`);
+  }
+}
+loadDotEnvLocal();
+
+// Sane defaults for the "just works" case. Only applied if the var is unset.
+if (process.env.THEORCHESTRA_OMNICLAUDE === undefined) {
+  process.env.THEORCHESTRA_OMNICLAUDE = '1';
+}
+if (process.env.THEORCHESTRA_NO_KILL_ON_SHUTDOWN === undefined) {
+  process.env.THEORCHESTRA_NO_KILL_ON_SHUTDOWN = '1';
+}
+
 import { PtyManager } from '../src/backend/pty-manager.js';
 import { startServer } from '../src/backend/ws-server.js';
 import { attachStatusBarEmitter } from '../src/backend/event-emitters/status-bar.js';

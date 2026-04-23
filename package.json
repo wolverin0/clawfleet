@@ -51,7 +51,8 @@
     "v3:phase89-gate": "tsx scripts/v3-phase89-gate.ts",
     "v3:phase11": "tsx scripts/v3-phase11-run.ts",
     "v3:phase11-ui": "tsx scripts/v3-phase11-playwright.ts",
-    "v3:gate": "tsx scripts/v3-plan-of-truth-gate.ts"
+    "v3:gate": "tsx scripts/v3-plan-of-truth-gate.ts",
+    "start": "tsx scripts/theorchestra-start.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",

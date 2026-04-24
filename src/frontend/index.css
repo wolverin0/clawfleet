@@ -2622,6 +2622,60 @@ body,
 .omni-header { display: flex; align-items: center; gap: 12px; }
 .omni-header h2 { margin: 0; }
 .omni-meta { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* Each scrollback line rendered as its own <div> so ansiToHtml spans work. */
+.omni-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-height: 1em;
+}
+.omni-line:empty::after { content: '\200b'; } /* preserve blank lines */
+
+.omni-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.08));
+  border-radius: 6px;
+  background: rgba(20, 22, 28, 0.5);
+}
+.omni-keys {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.omni-keys .dwin-btn {
+  font-size: 11px;
+  padding: 4px 10px;
+  min-width: 32px;
+}
+.omni-flash {
+  color: #9ce3a7;
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+  margin-left: 8px;
+}
+.omni-prompt-row {
+  display: flex;
+  gap: 6px;
+}
+.omni-prompt-input {
+  flex: 1 1 auto;
+  padding: 6px 10px;
+  background: var(--bg-base, #0d0e12);
+  color: var(--text-primary, #d0d4da);
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.08));
+  border-radius: 4px;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+.omni-prompt-input:focus {
+  outline: 1px solid #5a9cf2;
+  outline-offset: 0;
+}
+
 .omni-pill { background: #1d3a5f; color: #bcd3f2; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-family: ui-monospace, monospace; }
 .omni-pill.status-idle { background: #1e4a2c; color: #9ce3a7; }
 .omni-pill.status-working { background: #5e4e1b; color: #f2e0a0; }

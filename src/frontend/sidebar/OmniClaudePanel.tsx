@@ -100,7 +100,11 @@ export function OmniClaudePanel() {
     if (!text || sending) return;
     setSending(true);
     try {
-      await authedFetch('/api/chat/ask', {
+      // Route user messages through tell-omni (enqueueFront → omniclaude pane).
+      // The older /api/chat/ask only stored in ChatStore without delivering to
+      // the pane; tell-omni both appends to ChatStore and jumps the queue so
+      // omniclaude actually sees it.
+      await authedFetch('/api/orchestrator/tell-omni', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text }),

@@ -197,9 +197,30 @@ export function startOmniclaudeDriver(opts: OmniclaudeDriverOptions): Omniclaude
   // code: 2" from node-pty. POSIX: direct is fine.
   const sentinelPath = path.join(cwd, '.bootstrapped');
   const useContinue = fs.existsSync(sentinelPath);
-  const claudeArgs = useContinue ? ['--continue'] : [];
+  const baseArgs: string[] = [];
+  if (useContinue) baseArgs.push('--continue');
+  // Bypass permissions so omniclaude can spawn peers / read files without
+  // interactive prompts. Can be disabled with THEORCHESTRA_OMNICLAUDE_SAFE_MODE=1.
+  if (process.env.THEORCHESTRA_OMNICLAUDE_SAFE_MODE !== '1') {
+    baseArgs.push('--dangerously-skip-permissions');
+  }
+  // If the Telegram plugin is installed at user-global or project-scope,
+  // auto-subscribe via --channels. Without this flag the plugin's bun server
+  // runs but DMs never reach the claude session (silent typing indicator
+  // with no response). Docs: https://code.claude.com/docs/en/channels
+  const telegramPluginPaths = [
+    path.join(os.homedir(), '.claude', 'plugins', 'cache', 'claude-plugins-official', 'telegram'),
+    path.join(cwd, '.claude', 'plugins', 'cache', 'claude-plugins-official', 'telegram'),
+  ];
+  const telegramPluginInstalled = telegramPluginPaths.some((p) => {
+    try { return fs.existsSync(p); } catch { return false; }
+  });
+  if (telegramPluginInstalled && process.env.THEORCHESTRA_OMNICLAUDE_NO_TELEGRAM !== '1') {
+    baseArgs.push('--channels', 'plugin:telegram@claude-plugins-official');
+  }
+  const claudeArgs = baseArgs;
   console.log(
-    `[omniclaude] spawning with ${useContinue ? '--continue (resuming prior session)' : 'fresh session (first boot)'}`,
+    `[omniclaude] spawning claude ${claudeArgs.join(' ') || '(no args)'}`,
   );
   let rec;
   try {
